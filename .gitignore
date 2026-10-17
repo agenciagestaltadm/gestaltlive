@@ -1,0 +1,12 @@
+node_modules
+.next
+dist
+.data
+uploads
+.env
+.env.local
+*.tsbuildinfo
+next-env.d.ts
+test-results
+playwright-report
+tests/load/results-*.json
