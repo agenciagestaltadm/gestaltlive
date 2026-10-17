@@ -363,7 +363,8 @@ export function buildChartOption(type: ChartType, data: ResultsDTO, o: BuildOpti
               formatter: (p: { dataIndex: number }) => `${truncate(cats[p.dataIndex].label, 24)}\n${labelText(cfg, cats[p.dataIndex].count, cats[p.dataIndex].pct)}`,
             },
             labelLine: { lineStyle: { color: t.axis } },
-            data: cats.map((c) => ({ name: c.label, value: c.count, itemStyle: { color: c.color } })),
+            // fatias zeradas não recebem rótulo (evita sobreposição); continuam na legenda
+            data: cats.map((c) => ({ name: c.label, value: c.count, itemStyle: { color: c.color }, label: { show: c.count > 0 }, labelLine: { show: c.count > 0 } })),
           },
         ],
       });

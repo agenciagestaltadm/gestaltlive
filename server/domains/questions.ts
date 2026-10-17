@@ -14,6 +14,7 @@ import {
   QUESTIONNAIRE_FORMAT,
   questionInputSchema,
   questionnaireExportSchema,
+  scoringSchema,
   type QuestionInput,
   type QuestionnaireExport,
   type QuestionType,
@@ -291,13 +292,15 @@ export async function createQuestion(ctx: AppContext, actor: Actor, eventId: str
 }
 
 function structuralSignature(input: QuestionInput) {
+  // o jsonb do Postgres não preserva a ordem das chaves: normaliza a pontuação campo a campo
+  const s = input.scoring ? scoringSchema.parse(input.scoring) : null;
   return JSON.stringify({
     type: input.type,
     minSelections: input.minSelections,
     maxSelections: input.maxSelections,
     scaleMin: input.scaleMin,
     scaleMax: input.scaleMax,
-    scoring: input.scoring,
+    scoring: s && [s.basePoints, s.weight, s.speedBonusEnabled, s.speedBonusMax, s.wrongPenalty],
     options: input.options.map((o) => ({ id: o.id ?? null, isCorrect: o.isCorrect })),
   });
 }

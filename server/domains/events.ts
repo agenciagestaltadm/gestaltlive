@@ -1,7 +1,7 @@
 /** Eventos, campos de cadastro, prêmios e templates de treinamento. */
 import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { AppContext } from "../context";
-import type { Tx } from "../db/client";
+import { qc, type Tx } from "../db/client";
 import {
   eventPrizes,
   eventSessions,
@@ -63,9 +63,9 @@ export async function listEvents(ctx: AppContext, actor: Actor, orgId: string, o
       archivedAt: events.archivedAt,
       createdAt: events.createdAt,
       updatedAt: events.updatedAt,
-      questionCount: sql<number>`(select count(*)::int from ${questions} where ${questions.eventId} = ${events.id})`,
-      sessionCount: sql<number>`(select count(*)::int from ${eventSessions} where ${eventSessions.eventId} = ${events.id})`,
-      liveCount: sql<number>`(select count(*)::int from ${eventSessions} where ${eventSessions.eventId} = ${events.id} and ${eventSessions.status} in ('AO_VIVO','PAUSADA','AGUARDANDO'))`,
+      questionCount: sql<number>`(select count(*)::int from ${questions} where ${questions.eventId} = ${qc(events.id)})`,
+      sessionCount: sql<number>`(select count(*)::int from ${eventSessions} where ${eventSessions.eventId} = ${qc(events.id)})`,
+      liveCount: sql<number>`(select count(*)::int from ${eventSessions} where ${eventSessions.eventId} = ${qc(events.id)} and ${eventSessions.status} in ('AO_VIVO','PAUSADA','AGUARDANDO'))`,
     })
     .from(events)
     .where(and(eq(events.orgId, orgId), opts.archived ? sql`${events.archivedAt} is not null` : isNull(events.archivedAt)))

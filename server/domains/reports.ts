@@ -6,7 +6,7 @@
 import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import ExcelJS from "exceljs";
 import type { AppContext } from "../context";
-import type { Tx } from "../db/client";
+import { qc, type Tx } from "../db/client";
 import {
   answerOptionSelections,
   consentRecords,
@@ -171,9 +171,12 @@ export async function buildSessionReport(tx: Tx, sessionId: string, filter: Repo
   const ranking = (await computeRanking(tx, sessionId, false)).filter((r) => inFilter(r.id));
   const scores = ranking.map((r) => r.score);
   const maxScore = Math.max(0, ...scores);
-  const bucketSize = maxScore <= 0 ? 100 : Math.max(50, Math.ceil(maxScore / 10 / 50) * 50);
+  const minScore = Math.min(0, ...scores);
+  const bucketSize = maxScore - minScore <= 0 ? 100 : Math.max(50, Math.ceil((maxScore - minScore) / 10 / 50) * 50);
   const histogram: { range: string; count: number }[] = [];
-  for (let b = 0; b <= maxScore; b += bucketSize) {
+  // inclui faixas negativas (penalidades e ajustes) quando existirem
+  const start = minScore < 0 ? -Math.ceil(-minScore / bucketSize) * bucketSize : 0;
+  for (let b = start; b <= maxScore; b += bucketSize) {
     histogram.push({ range: `${b}–${b + bucketSize - 1}`, count: scores.filter((x) => x >= b && x < b + bucketSize).length });
   }
 
@@ -247,10 +250,10 @@ export async function sessionsOverview(
       eventId: events.id,
       eventTitle: events.title,
       speakerName: sql<string | null>`coalesce(${users.name}, ${events.speakerName})`,
-      registered: sql<number>`(select count(*)::int from ${sessionParticipants} where ${sessionParticipants.sessionId} = ${eventSessions.id})`,
-      interacted: sql<number>`(select count(distinct ${participantAnswers.sessionParticipantId})::int from ${participantAnswers} where ${participantAnswers.sessionId} = ${eventSessions.id})`,
-      answers: sql<number>`(select count(*)::int from ${participantAnswers} where ${participantAnswers.sessionId} = ${eventSessions.id} and ${participantAnswers.status} = 'ACCEPTED')`,
-      accuracyPct: sql<number | null>`(select avg(case when ${participantAnswers.isCorrect} then 100.0 else 0 end)::float from ${participantAnswers} where ${participantAnswers.sessionId} = ${eventSessions.id} and ${participantAnswers.status} = 'ACCEPTED' and ${participantAnswers.isCorrect} is not null)`,
+      registered: sql<number>`(select count(*)::int from ${sessionParticipants} where ${sessionParticipants.sessionId} = ${qc(eventSessions.id)})`,
+      interacted: sql<number>`(select count(distinct ${participantAnswers.sessionParticipantId})::int from ${participantAnswers} where ${participantAnswers.sessionId} = ${qc(eventSessions.id)} and ${participantAnswers.status} = 'ACCEPTED')`,
+      answers: sql<number>`(select count(*)::int from ${participantAnswers} where ${participantAnswers.sessionId} = ${qc(eventSessions.id)} and ${participantAnswers.status} = 'ACCEPTED')`,
+      accuracyPct: sql<number | null>`(select avg(case when ${participantAnswers.isCorrect} then 100.0 else 0 end)::float from ${participantAnswers} where ${participantAnswers.sessionId} = ${qc(eventSessions.id)} and ${participantAnswers.status} = 'ACCEPTED' and ${participantAnswers.isCorrect} is not null)`,
     })
     .from(eventSessions)
     .innerJoin(events, eq(events.id, eventSessions.eventId))

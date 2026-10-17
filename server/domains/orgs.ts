@@ -2,6 +2,7 @@
 import { and, count, eq, inArray, sql } from "drizzle-orm";
 import type { z } from "zod";
 import type { AppContext } from "../context";
+import { qc } from "../db/client";
 import { eventSessions, events, organizationMembers, organizations, participants, sessionParticipants, users } from "../db/schema";
 import type { Actor, Role } from "../auth/auth";
 import { authorize, requireSuperadmin } from "../auth/permissions";
@@ -148,9 +149,9 @@ export async function globalOverview(ctx: AppContext, actor: Actor) {
     .select({
       orgId: organizations.id,
       name: organizations.name,
-      events: sql<number>`(select count(*)::int from ${events} where ${events.orgId} = ${organizations.id})`,
-      sessions: sql<number>`(select count(*)::int from ${eventSessions} where ${eventSessions.orgId} = ${organizations.id})`,
-      participants: sql<number>`(select count(*)::int from ${participants} where ${participants.orgId} = ${organizations.id})`,
+      events: sql<number>`(select count(*)::int from ${events} where ${events.orgId} = ${qc(organizations.id)})`,
+      sessions: sql<number>`(select count(*)::int from ${eventSessions} where ${eventSessions.orgId} = ${qc(organizations.id)})`,
+      participants: sql<number>`(select count(*)::int from ${participants} where ${participants.orgId} = ${qc(organizations.id)})`,
     })
     .from(organizations)
     .orderBy(organizations.name);

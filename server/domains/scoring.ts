@@ -56,6 +56,12 @@ export async function scoreQuestion(tx: Tx, sq: SessionQuestionRow, now: Date): 
 /** Fase 2 — lança os pontos no livro-razão e atualiza os agregados de forma atômica (idempotente). */
 export async function publishScores(tx: Tx, sq: SessionQuestionRow, now: Date): Promise<boolean> {
   if (!sq.scoredAt || sq.scoresPublishedAt) return false;
+  // perguntas sem pontuação apenas marcam a publicação (não alteram o ranking nem geram snapshot)
+  const snap = await getSnapshot(tx, sq.versionId);
+  if (!snap.scoring) {
+    await tx.update(sessionQuestions).set({ scoresPublishedAt: now }).where(eq(sessionQuestions.id, sq.id));
+    return false;
+  }
   await tx.execute(sql`
     with ins as (
       insert into ${scoreTransactions}

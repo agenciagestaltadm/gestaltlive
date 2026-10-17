@@ -2,7 +2,7 @@
 import crypto from "node:crypto";
 import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
 import type { AppContext } from "../context";
-import type { Tx } from "../db/client";
+import { qc, type Tx } from "../db/client";
 import {
   eventSessions,
   events,
@@ -142,7 +142,7 @@ export async function createSession(ctx: AppContext, actor: Actor, eventId: stri
     await tx.insert(presentationStates).values({ sessionId: s.id, orgId: s.orgId });
     await syncSessionQuestions(tx, s);
     await audit(tx, actor, ev.orgId, "session.create", "session", s.id, { code, name: s.name, eventId });
-    return s;
+    return sanitizeSession(s);
   });
 }
 
@@ -159,7 +159,7 @@ export async function listSessions(ctx: AppContext, actor: Actor, eventId: strin
       endedAt: eventSessions.endedAt,
       finalizedAt: eventSessions.finalizedAt,
       createdAt: eventSessions.createdAt,
-      participants: sql<number>`(select count(*)::int from ${sessionParticipants} where ${sessionParticipants.sessionId} = ${eventSessions.id})`,
+      participants: sql<number>`(select count(*)::int from ${sessionParticipants} where ${sessionParticipants.sessionId} = ${qc(eventSessions.id)})`,
     })
     .from(eventSessions)
     .where(eq(eventSessions.eventId, ev.id))
@@ -185,7 +185,7 @@ export async function listOrgSessions(ctx: AppContext, actor: Actor, orgId: stri
       eventTitle: events.title,
       speakerName: events.speakerName,
       speakerUserId: events.speakerUserId,
-      participants: sql<number>`(select count(*)::int from ${sessionParticipants} where ${sessionParticipants.sessionId} = ${eventSessions.id})`,
+      participants: sql<number>`(select count(*)::int from ${sessionParticipants} where ${sessionParticipants.sessionId} = ${qc(eventSessions.id)})`,
     })
     .from(eventSessions)
     .innerJoin(events, eq(events.id, eventSessions.eventId))
@@ -200,8 +200,7 @@ export async function getSessionAdmin(ctx: AppContext, actor: Actor, id: string,
   const [pc] = await ctx.db.select({ n: count() }).from(sessionParticipants).where(eq(sessionParticipants.sessionId, id));
   const [qc] = await ctx.db.select({ n: count() }).from(sessionQuestions).where(eq(sessionQuestions.sessionId, id));
   return {
-    ...s,
-    screenTokenNonce: undefined,
+    ...sanitizeSession(s),
     event: { id: ev.id, title: ev.title, speakerName: ev.speakerName },
     participants: pc.n,
     questionCount: qc.n,
@@ -219,7 +218,7 @@ export async function updateSession(ctx: AppContext, actor: Actor, id: string, r
     .set({ name: input.name, scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null, status, updatedAt: ctx.now() })
     .where(eq(eventSessions.id, id))
     .returning();
-  return u;
+  return sanitizeSession(u);
 }
 
 export async function deleteSession(ctx: AppContext, actor: Actor, id: string) {
@@ -277,4 +276,11 @@ export async function publicSessionDTO(tx: Tx, ctx: AppContext, s: SessionRow, o
 
 export async function sessionQuestionList(tx: Tx, sessionId: string) {
   return tx.select().from(sessionQuestions).where(eq(sessionQuestions.sessionId, sessionId)).orderBy(asc(sessionQuestions.position));
+}
+
+/** Remove segredos antes de devolver a sessão pela API (o nonce do telão nunca sai do servidor). */
+export function sanitizeSession<T extends { screenTokenNonce?: string }>(s: T): Omit<T, "screenTokenNonce"> {
+  const { screenTokenNonce: _nonce, ...rest } = s;
+  void _nonce;
+  return rest;
 }

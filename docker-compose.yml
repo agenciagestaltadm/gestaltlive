@@ -1,0 +1,48 @@
+# Ambiente completo: aplicação + PostgreSQL 17 + Redis 7.
+#   cp .env.example .env   (ajuste APP_SECRET, PUBLIC_URL e a senha do superadmin)
+#   docker compose up -d --build
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://gestalt:${POSTGRES_PASSWORD:-gestalt}@db:5432/gestalt_live
+      REDIS_URL: redis://redis:6379
+      UPLOAD_DIR: /app/uploads
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      TRUST_PROXY: ${TRUST_PROXY:-true}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gestalt_live
+      POSTGRES_USER: gestalt
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gestalt}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gestalt -d gestalt_live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+
+volumes:
+  pgdata:
+  uploads:

@@ -1,0 +1,164 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------
+   Design system Gestalt Live
+   Cor primária: fúcsia #FF0068 · Secundária: azul-marinho escuro
+   ------------------------------------------------------------------ */
+:root {
+  --brand: #ff0068;
+  --brand-strong: #e0005b;
+  --brand-soft: #ffe3ef;
+  --navy-950: #050b1f;
+  --navy-900: #0b1736;
+  --navy-850: #0e1b40;
+  --navy-800: #111f45;
+  --navy-700: #1a2b5c;
+  --navy-600: #263a75;
+  --gold: #f5b700;
+  --silver: #c3cad8;
+  --bronze: #cd7f32;
+  --positive: #22c55e;
+  --negative: #ef4444;
+  --warning: #f59e0b;
+
+  /* tema claro (administração) */
+  --bg: #f4f6fb;
+  --fg: #0b1736;
+  --card: #ffffff;
+  --card-fg: #0b1736;
+  --muted: #eef1f8;
+  --muted-fg: #5b6480;
+  --border: #dde2ee;
+  --input: #cfd6e6;
+  --ring: #ff0068;
+  --sidebar: #0b1736;
+  --sidebar-fg: #e8ecf7;
+}
+
+.dark {
+  --bg: #050b1f;
+  --fg: #e8ecf7;
+  --card: #0e1b40;
+  --card-fg: #e8ecf7;
+  --muted: #111f45;
+  --muted-fg: #9aa3c0;
+  --border: #1f2f63;
+  --input: #2a3c78;
+  --ring: #ff3d8b;
+  --sidebar: #050b1f;
+  --sidebar-fg: #e8ecf7;
+}
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-fg);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-fg);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-fg);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-navy-950: var(--navy-950);
+  --color-navy-900: var(--navy-900);
+  --color-navy-850: var(--navy-850);
+  --color-navy-800: var(--navy-800);
+  --color-navy-700: var(--navy-700);
+  --color-navy-600: var(--navy-600);
+  --color-gold: var(--gold);
+  --color-silver: var(--silver);
+  --color-bronze: var(--bronze);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-warning: var(--warning);
+  --font-sans: var(--font-lato), "Segoe UI", system-ui, sans-serif;
+  --font-display: var(--font-diora), var(--font-lato), Georgia, serif;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
+  --animate-pop: pop 380ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
+  --animate-rise: rise 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-pulse-ring: pulse-ring 1.6s ease-out infinite;
+}
+
+@keyframes pop {
+  0% { transform: scale(0.85); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes rise {
+  0% { transform: translateY(14px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(255, 0, 104, 0.45); }
+  100% { box-shadow: 0 0 0 14px rgba(255, 0, 104, 0); }
+}
+@keyframes podium-up {
+  0% { transform: translateY(100%); }
+  100% { transform: translateY(0); }
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  border-color: var(--border);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* telas de participante: respeita áreas seguras (notch, barra de gestos) */
+.safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* fundo de marca (gradiente sutil + padrão) */
+.bg-brand-hero {
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(255, 0, 104, 0.22), transparent 60%),
+    radial-gradient(900px 500px at 110% 10%, rgba(59, 130, 246, 0.16), transparent 60%),
+    linear-gradient(180deg, #0b1736 0%, #050b1f 100%);
+}
+
+.text-gradient-brand {
+  background: linear-gradient(90deg, #ff0068, #ff5aa0);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

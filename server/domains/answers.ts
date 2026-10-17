@@ -61,11 +61,19 @@ export async function submitAnswer(ctx: AppContext, auth: ParticipantAuth, raw: 
         return { result: await toResult(tx, byKey, "DUPLICADA"), changed: false };
       }
 
-      const [sq] = await tx.select().from(sessionQuestions).where(eq(sessionQuestions.id, input.sessionQuestionId)).for("share");
+      // uma única consulta: pergunta (travada para leitura), status da sessão e situação do participante
+      const [row] = await tx
+        .select({ sq: sessionQuestions, status: eventSessions.status, disqualifiedAt: sessionParticipants.disqualifiedAt })
+        .from(sessionQuestions)
+        .innerJoin(eventSessions, eq(eventSessions.id, sessionQuestions.sessionId))
+        .innerJoin(sessionParticipants, eq(sessionParticipants.id, auth.sp.id))
+        .where(eq(sessionQuestions.id, input.sessionQuestionId))
+        .for("share", { of: sessionQuestions });
+      const sq = row?.sq;
       // a pergunta precisa pertencer à MESMA sessão da credencial (impede respostas cruzadas entre sessões)
       if (!sq || sq.sessionId !== auth.session.id) throw reject("PERGUNTA_INVALIDA", "Pergunta não encontrada nesta sessão.", 404);
-      const [session] = await tx.select({ status: eventSessions.status }).from(eventSessions).where(eq(eventSessions.id, sq.sessionId));
-      const [sp] = await tx.select({ disqualifiedAt: sessionParticipants.disqualifiedAt }).from(sessionParticipants).where(eq(sessionParticipants.id, auth.sp.id));
+      const session = { status: row.status };
+      const sp = { disqualifiedAt: row.disqualifiedAt };
       if (session.status !== "AO_VIVO") throw reject("SESSAO_NAO_ATIVA", session.status === "PAUSADA" ? "A sessão está pausada." : "A sessão não está ao vivo.");
       if (sp.disqualifiedAt) throw reject("PARTICIPACAO_SUSPENSA", "Sua participação foi suspensa pela organização.", 403);
       if (sq.state !== "ABERTA") throw reject("PERGUNTA_FECHADA", "Esta pergunta não está aceitando respostas.");
@@ -133,7 +141,7 @@ export async function submitAnswer(ctx: AppContext, auth: ParticipantAuth, raw: 
       if (inserted.length === 0) return null; // corrida com outra requisição do mesmo participante
       const ans = inserted[0];
       if (optionIds.length) await tx.insert(answerOptionSelections).values(optionIds.map((optionId) => ({ answerId: ans.id, optionId })));
-      return { result: await toResult(tx, ans, current ? "ATUALIZADA" : "ACEITA"), changed: true };
+      return { result: toResultKnown(ans, [...optionIds].sort(), current ? "ATUALIZADA" : "ACEITA"), changed: true };
     });
 
   let out = await run();
@@ -180,4 +188,17 @@ export async function myAnswerFor(tx: Tx, spId: string, sqId: string) {
     .where(and(eq(participantAnswers.sessionQuestionId, sqId), eq(participantAnswers.sessionParticipantId, spId), eq(participantAnswers.status, "ACCEPTED")));
   if (!a) return null;
   return { answer: a, optionIds: await selectionsOf(tx, a.id) };
+}
+
+function toResultKnown(a: typeof participantAnswers.$inferSelect, optionIds: string[], outcome: AnswerOutcome): SubmitResult {
+  return {
+    outcome,
+    answerId: a.id,
+    sessionQuestionId: a.sessionQuestionId,
+    optionIds,
+    value: a.numericValue,
+    revision: a.revision,
+    receivedAt: a.receivedAt.toISOString(),
+    responseTimeMs: a.responseTimeMs,
+  };
 }

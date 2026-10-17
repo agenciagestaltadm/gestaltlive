@@ -141,7 +141,8 @@ export async function startHttpServer(runtime: Runtime, opts: HttpServerOptions)
   }, opts.schedulerIntervalMs ?? 250);
   scheduler.unref();
 
-  await new Promise<void>((resolve) => server.listen(opts.port, opts.host ?? "0.0.0.0", resolve));
+  // backlog alto: rajadas de centenas de conexões simultâneas (todos respondendo ao mesmo tempo)
+  await new Promise<void>((resolve) => server.listen({ port: opts.port, host: opts.host ?? "0.0.0.0", backlog: 4096 }, resolve));
   const address = server.address();
   const port = typeof address === "object" && address ? address.port : opts.port;
 

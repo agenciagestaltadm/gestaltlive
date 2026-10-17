@@ -10,7 +10,8 @@
  */
 import path from "node:path";
 import fs from "node:fs";
-import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import type { AnyPgColumn, PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import { getTableName, sql } from "drizzle-orm";
 import * as schema from "./schema";
 
 export type Schema = typeof schema;
@@ -63,4 +64,13 @@ export async function createDatabase(url: string): Promise<Database> {
   const { migrate } = await import("drizzle-orm/node-postgres/migrator");
   await migrate(db as never, { migrationsFolder: MIGRATIONS_FOLDER });
   return { db, kind: "postgres", close: () => pool.end() };
+}
+
+/**
+ * Referência qualificada ("tabela"."coluna") para usar em subconsultas correlacionadas.
+ * O Drizzle renderiza colunas sem o nome da tabela dentro de sql``; numa subconsulta, a coluna
+ * da consulta externa seria resolvida contra a tabela interna (ex.: "id" → id da tabela interna).
+ */
+export function qc(column: AnyPgColumn) {
+  return sql.raw(`"${getTableName(column.table)}"."${column.name}"`);
 }

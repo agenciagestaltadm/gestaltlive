@@ -133,7 +133,7 @@ export async function expectHttpError(p: Promise<unknown>, status: number, code?
 /** Cria uma sessão do evento de demonstração e a coloca ao vivo. */
 export async function liveDemoSession(env: TestEnv, name = "Turma teste") {
   const events = await env.admin.get(`/api/admin/events?orgId=${env.orgId}`);
-  const ev = events[0];
+  const ev = events.find((e: { title: string }) => e.title.startsWith("Vendas Inteligentes")) ?? events[events.length - 1];
   const s = await env.admin.post(`/api/admin/events/${ev.id}/sessions`, { name });
   await env.admin.post(`/api/admin/sessions/${s.id}/lobby`);
   const control = await env.admin.post(`/api/admin/sessions/${s.id}/start`);

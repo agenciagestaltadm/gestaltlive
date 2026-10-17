@@ -1,0 +1,172 @@
+{
+  "participantes": 300,
+  "perguntas": 3,
+  "janelaRespostasMs": 8000,
+  "banco": "pglite",
+  "node": "v24.13.0",
+  "inicio": "2026-10-17T01:31:04.348Z",
+  "cadastro": {
+    "n": 300,
+    "p50": 1056,
+    "p95": 2018,
+    "p99": 2108,
+    "max": 2111,
+    "totalMs": 7679
+  },
+  "conexoes": {
+    "n": 300,
+    "p50": 298,
+    "p95": 371,
+    "p99": 397,
+    "max": 424,
+    "conectadosNoServidor": 300
+  },
+  "perguntas_": [
+    {
+      "pergunta": "Qual métrica indica o percentual de leads que se tornam clientes?",
+      "liberarMs": 210,
+      "entregaPerguntaMs": {
+        "n": 300,
+        "p50": 151,
+        "p95": 174,
+        "p99": 175,
+        "max": 175
+      },
+      "recebidaPor": 300,
+      "respostaHttpMs": {
+        "n": 300,
+        "p50": 54,
+        "p95": 370,
+        "p99": 500,
+        "max": 513
+      },
+      "statusRespostas": {
+        "201": 300,
+        "dup-200": 30
+      },
+      "respondentesNoServidor": 300,
+      "encerrarMs": 361,
+      "revelarEPublicarMs": 194,
+      "pontosRecebidosPor": 300,
+      "entregaPontosMs": {
+        "n": 300,
+        "p50": 25,
+        "p95": 47,
+        "p99": 49,
+        "max": 51
+      }
+    },
+    {
+      "pergunta": "O que significa a sigla CAC?",
+      "liberarMs": 67,
+      "entregaPerguntaMs": {
+        "n": 300,
+        "p50": 45,
+        "p95": 51,
+        "p99": 51,
+        "max": 51
+      },
+      "recebidaPor": 300,
+      "respostaHttpMs": {
+        "n": 300,
+        "p50": 38,
+        "p95": 472,
+        "p99": 579,
+        "max": 586
+      },
+      "statusRespostas": {
+        "201": 300,
+        "dup-200": 30
+      },
+      "respondentesNoServidor": 300,
+      "encerrarMs": 443,
+      "revelarEPublicarMs": 184,
+      "pontosRecebidosPor": 300,
+      "entregaPontosMs": {
+        "n": 300,
+        "p50": 20,
+        "p95": 28,
+        "p99": 30,
+        "max": 31
+      }
+    },
+    {
+      "pergunta": "Quais destes são canais de aquisição digital?",
+      "liberarMs": 137,
+      "entregaPerguntaMs": {
+        "n": 300,
+        "p50": 105,
+        "p95": 115,
+        "p99": 116,
+        "max": 116
+      },
+      "recebidaPor": 300,
+      "respostaHttpMs": {
+        "n": 300,
+        "p50": 27,
+        "p95": 169,
+        "p99": 214,
+        "max": 326
+      },
+      "statusRespostas": {
+        "201": 300,
+        "dup-200": 30
+      },
+      "respondentesNoServidor": 300,
+      "encerrarMs": 355,
+      "revelarEPublicarMs": 163,
+      "pontosRecebidosPor": 300,
+      "entregaPontosMs": {
+        "n": 300,
+        "p50": 17,
+        "p95": 24,
+        "p99": 25,
+        "max": 26
+      }
+    }
+  ],
+  "respostaHttpMsGeral": {
+    "n": 900,
+    "p50": 39,
+    "p95": 425,
+    "p99": 512,
+    "max": 586
+  },
+  "entregaPerguntaMsGeral": {
+    "n": 900,
+    "p50": 105,
+    "p95": 171,
+    "p99": 174,
+    "max": 175
+  },
+  "satisfacao": {
+    "httpMs": {
+      "n": 375,
+      "p50": 1108,
+      "p95": 2223,
+      "p99": 2279,
+      "max": 2279
+    },
+    "resumo": {
+      "positive": 300,
+      "negative": 0,
+      "total": 300,
+      "positivePct": 100,
+      "negativePct": 0
+    }
+  },
+  "retentativasDeRede": 58,
+  "integridade": {
+    "divergenciasLivroRazao": 0,
+    "respostasDuplicadas": 0,
+    "emitidos": 3036,
+    "falhasFlush": 0
+  },
+  "memoriaMB": {
+    "rss": 588,
+    "heap": 167
+  },
+  "erros": [],
+  "aprovado": true,
+  "fim": "2026-10-17T01:31:46.069Z"
+}

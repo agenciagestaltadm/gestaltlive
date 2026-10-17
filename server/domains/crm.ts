@@ -4,6 +4,7 @@
  */
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { AppContext } from "../context";
+import { qc } from "../db/client";
 import {
   answerOptionSelections,
   consentRecords,
@@ -41,7 +42,7 @@ export interface ParticipantFilter {
 
 const latestMarketing = sql<boolean | null>`(
   select cr.granted from ${consentRecords} cr
-   where cr.participant_id = ${participants.id} and cr.purpose = 'MARKETING'
+   where cr.participant_id = ${qc(participants.id)} and cr.purpose = 'MARKETING'
    order by cr.created_at desc limit 1)`;
 
 function whereFor(orgId: string, f: ParticipantFilter): SQL {
@@ -52,7 +53,7 @@ function whereFor(orgId: string, f: ParticipantFilter): SQL {
   }
   if (f.sessionId || f.eventId) {
     conds.push(sql`exists (select 1 from ${sessionParticipants} sp join ${eventSessions} es on es.id = sp.session_id
-      where sp.participant_id = ${participants.id}
+      where sp.participant_id = ${qc(participants.id)}
       ${f.sessionId ? sql`and sp.session_id = ${f.sessionId}` : sql``}
       ${f.eventId ? sql`and es.event_id = ${f.eventId}` : sql``})`);
   }
@@ -62,14 +63,14 @@ function whereFor(orgId: string, f: ParticipantFilter): SQL {
     conds.push(sql`exists (select 1 from ${participantCustomValues} v
       join ${participantCustomFields} cf on cf.id = v.field_id
       join ${sessionParticipants} sp on sp.id = v.session_participant_id
-      where sp.participant_id = ${participants.id} and cf.key = ${f.fieldKey} and v.value = ${f.fieldValue})`);
+      where sp.participant_id = ${qc(participants.id)} and cf.key = ${f.fieldKey} and v.value = ${f.fieldValue})`);
   }
   if (f.questionId && f.optionId) {
     conds.push(sql`exists (select 1 from ${participantAnswers} pa
       join ${sessionParticipants} sp on sp.id = pa.session_participant_id
       join ${sessionQuestions} sq on sq.id = pa.session_question_id
       join ${answerOptionSelections} aos on aos.answer_id = pa.id
-      where sp.participant_id = ${participants.id} and pa.status = 'ACCEPTED'
+      where sp.participant_id = ${qc(participants.id)} and pa.status = 'ACCEPTED'
         and sq.question_id = ${f.questionId} and aos.option_id = ${f.optionId})`);
   }
   return and(...conds)!;
@@ -90,8 +91,8 @@ export async function listParticipants(ctx: AppContext, actor: Actor, orgId: str
       createdAt: participants.createdAt,
       anonymizedAt: participants.anonymizedAt,
       marketing: latestMarketing,
-      sessions: sql<number>`(select count(*)::int from ${sessionParticipants} sp where sp.participant_id = ${participants.id})`,
-      bestScore: sql<number | null>`(select max(sp.score)::int from ${sessionParticipants} sp where sp.participant_id = ${participants.id})`,
+      sessions: sql<number>`(select count(*)::int from ${sessionParticipants} sp where sp.participant_id = ${qc(participants.id)})`,
+      bestScore: sql<number | null>`(select max(sp.score)::int from ${sessionParticipants} sp where sp.participant_id = ${qc(participants.id)})`,
     })
     .from(participants)
     .where(where)
@@ -120,11 +121,11 @@ export async function participantDetail(ctx: AppContext, actor: Actor, id: strin
       answeredCount: sessionParticipants.answeredCount,
       disqualifiedAt: sessionParticipants.disqualifiedAt,
       position: sql<number>`(select count(*)::int + 1 from ${sessionParticipants} o
-        where o.session_id = ${sessionParticipants.sessionId} and o.disqualified_at is null and (
-          o.score > ${sessionParticipants.score}
-          or (o.score = ${sessionParticipants.score} and o.correct_count > ${sessionParticipants.correctCount})
-          or (o.score = ${sessionParticipants.score} and o.correct_count = ${sessionParticipants.correctCount} and o.correct_time_ms < ${sessionParticipants.correctTimeMs})
-          or (o.score = ${sessionParticipants.score} and o.correct_count = ${sessionParticipants.correctCount} and o.correct_time_ms = ${sessionParticipants.correctTimeMs} and (o.joined_at, o.id) < (${sessionParticipants.joinedAt}, ${sessionParticipants.id}))))`,
+        where o.session_id = ${qc(sessionParticipants.sessionId)} and o.disqualified_at is null and (
+          o.score > ${qc(sessionParticipants.score)}
+          or (o.score = ${qc(sessionParticipants.score)} and o.correct_count > ${qc(sessionParticipants.correctCount)})
+          or (o.score = ${qc(sessionParticipants.score)} and o.correct_count = ${qc(sessionParticipants.correctCount)} and o.correct_time_ms < ${qc(sessionParticipants.correctTimeMs)})
+          or (o.score = ${qc(sessionParticipants.score)} and o.correct_count = ${qc(sessionParticipants.correctCount)} and o.correct_time_ms = ${qc(sessionParticipants.correctTimeMs)} and (o.joined_at, o.id) < (${qc(sessionParticipants.joinedAt)}, ${qc(sessionParticipants.id)}))))`,
     })
     .from(sessionParticipants)
     .innerJoin(eventSessions, eq(eventSessions.id, sessionParticipants.sessionId))
