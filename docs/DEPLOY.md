@@ -64,7 +64,8 @@ Rode no notebook do palestrante com `DATABASE_URL=pglite:./.data/db` (ou Postgre
 
 ## Backup e retenção
 - Backup diário do PostgreSQL (`pg_dump`) e do volume de uploads.
-- `organizations.retention_days` documenta a política de retenção por organização; a anonimização é feita por participante no CRM (rotina automática de expurgo: ver `docs/PENDENCIAS.md`).
+- `organizations.retention_days` define o prazo de retenção por organização; a rotina automática (a cada hora) anonimiza os participantes vencidos e é auditada como "Sistema" (ver `docs/LGPD.md`). A anonimização individual continua disponível no CRM.
+- Webhooks de integração (opcionais, por organização) saem do servidor para a URL configurada: libere HTTPS de saída se houver firewall.
 
 ## Checklist de produção
 - [ ] `APP_SECRET` forte e exclusivo

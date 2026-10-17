@@ -33,6 +33,7 @@ import { computeRanking, disqualify, invalidateRanking, listAwards, myStanding, 
 import { adjustScore } from "./domains/scoring";
 import * as reports from "./domains/reports";
 import * as crm from "./domains/crm";
+import * as integrations from "./domains/integrations";
 import { audit, listAudit } from "./domains/audit";
 import { saveUpload, readUpload } from "./domains/uploads";
 import { disqualifySchema, loginSchema, orgCreateSchema, registrationConfigSchema, scoreAdjustmentSchema, SCREENS, userCreateSchema } from "@shared/schemas";
@@ -123,6 +124,23 @@ export function createApp(ctx: AppContext) {
   });
   admin.delete("/orgs/:orgId/members/:memberId", async (c) => {
     await orgs.removeMember(ctx, c.get("actor"), pid(c.req.param("orgId")), pid(c.req.param("memberId")));
+    return c.json({ ok: true });
+  });
+  /* ============================================================ integrações (webhook opcional) */
+  admin.get("/orgs/:orgId/integrations", async (c) => c.json(await integrations.getIntegrations(ctx, c.get("actor"), pid(c.req.param("orgId")))));
+  admin.put("/orgs/:orgId/integrations/webhook", async (c) =>
+    c.json(await integrations.saveWebhook(ctx, c.get("actor"), pid(c.req.param("orgId")), await body(c))),
+  );
+  admin.delete("/orgs/:orgId/integrations/webhook", async (c) => {
+    await integrations.deleteWebhook(ctx, c.get("actor"), pid(c.req.param("orgId")));
+    return c.json({ ok: true });
+  });
+  admin.post("/orgs/:orgId/integrations/webhook/rotate-secret", async (c) =>
+    c.json(await integrations.rotateWebhookSecret(ctx, c.get("actor"), pid(c.req.param("orgId")))),
+  );
+  admin.post("/orgs/:orgId/integrations/webhook/test", async (c) => c.json(await integrations.testWebhook(ctx, c.get("actor"), pid(c.req.param("orgId")))));
+  admin.post("/orgs/:orgId/integrations/outbox/:id/retry", async (c) => {
+    await integrations.retryOutboxItem(ctx, c.get("actor"), pid(c.req.param("orgId")), pid(c.req.param("id")));
     return c.json({ ok: true });
   });
   admin.get("/global", async (c) => c.json(await orgs.globalOverview(ctx, c.get("actor"))));

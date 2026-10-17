@@ -9,8 +9,8 @@
 - **Armazenamento de imagens** em disco local (`UPLOAD_DIR`): com várias instâncias, usar volume compartilhado ou migrar para S3/compatível.
 
 ## Funcionais
-- **Integrações (CRM LIDIA, webhooks, automações):** existe a camada `integration_outbox` + `enqueueIntegration`, mas nenhum consumidor/envio foi implementado (por decisão: nada é enviado automaticamente).
-- **Rotina automática de retenção:** `organizations.retention_days` é configurável, mas não há job que anonimize dados vencidos.
+- **Integrações:** há webhook genérico por organização (outbox + HMAC + novas tentativas; ver `docs/LGPD.md`). Faltam: conector nativo do CRM LIDIA (mapeamento de campos/autenticação próprios), evento de revogação de marketing para o CRM, mais de um destino por organização e reenvio em massa. A proteção contra rede interna valida o nome/IP da URL, mas não a resolução DNS (*DNS rebinding*).
+- **Retenção:** a rotina automática anonimiza participantes vencidos, mas não reescreve os snapshots de ranking já gravados (`leaderboard_snapshots.entries` mantém o nome de exibição da época) nem remove IP/*user agent* dos registros de consentimento (`consent_records`) — o mesmo vale para a anonimização manual.
 - **Relatório segmentado:** a satisfação e as exportações CSV/XLSX consideram a sessão inteira (não aplicam o filtro de segmento); a tela avisa.
 - **Verificação de e-mail/WhatsApp:** não há (dados autodeclarados); a recuperação de acesso é por código emitido pela equipe.
 - **Presença em múltiplas instâncias:** cada instância conta seus próprios sockets; com Redis os eventos são compartilhados, mas o total de "conectados" é por instância.

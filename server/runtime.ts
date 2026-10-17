@@ -13,6 +13,8 @@ import { Realtime } from "./realtime/realtime";
 import { attachGateway } from "./realtime/gateway";
 import { createApp } from "./app";
 import { closeExpiredQuestions } from "./domains/live";
+import { runRetention } from "./domains/retention";
+import { processOutbox } from "./domains/integrations";
 import { log } from "./lib/logger";
 
 export interface RuntimeOptions {
@@ -56,6 +58,35 @@ export interface HttpServerOptions {
   withNext?: boolean;
   dev?: boolean;
   schedulerIntervalMs?: number;
+  /** Rotina de retenção (LGPD). Padrão: 1 hora; 0 desativa. */
+  retentionIntervalMs?: number;
+  /** Consumidor do outbox de integrações (webhooks). Padrão: 15 s; 0 desativa. */
+  outboxIntervalMs?: number;
+}
+
+/** Tarefa periódica sem sobreposição (uma execução por vez nesta instância). */
+function periodic(name: string, intervalMs: number, fn: () => Promise<unknown>, initialDelayMs = intervalMs) {
+  if (intervalMs <= 0) return () => {};
+  let running = false;
+  const tick = async () => {
+    if (running) return;
+    running = true;
+    try {
+      await fn();
+    } catch (err) {
+      log.error(`falha na tarefa periódica: ${name}`, { err });
+    } finally {
+      running = false;
+    }
+  };
+  const first = setTimeout(() => void tick(), initialDelayMs);
+  const timer = setInterval(() => void tick(), intervalMs);
+  first.unref();
+  timer.unref();
+  return () => {
+    clearTimeout(first);
+    clearInterval(timer);
+  };
 }
 
 export interface RunningServer {
@@ -141,6 +172,19 @@ export async function startHttpServer(runtime: Runtime, opts: HttpServerOptions)
   }, opts.schedulerIntervalMs ?? 250);
   scheduler.unref();
 
+  // manutenção: idempotentes e seguras com várias instâncias (ver domains/retention e domains/integrations)
+  const stopRetention = periodic(
+    "retenção",
+    opts.retentionIntervalMs ?? 3_600_000,
+    async () => {
+      const r = await runRetention(ctx);
+      const total = r.reduce((n, o) => n + o.anonymized, 0);
+      if (total) log.info("retenção: participantes anonimizados", { total });
+    },
+    60_000,
+  );
+  const stopOutbox = periodic("outbox de integrações", opts.outboxIntervalMs ?? 15_000, () => processOutbox(ctx));
+
   // backlog alto: rajadas de centenas de conexões simultâneas (todos respondendo ao mesmo tempo)
   await new Promise<void>((resolve) => server.listen({ port: opts.port, host: opts.host ?? "0.0.0.0", backlog: 4096 }, resolve));
   const address = server.address();
@@ -152,6 +196,8 @@ export async function startHttpServer(runtime: Runtime, opts: HttpServerOptions)
     port,
     stop: async () => {
       clearInterval(scheduler);
+      stopRetention();
+      stopOutbox();
       ctx.rt.stop();
       io.disconnectSockets(true);
       await new Promise<void>((resolve) => io.close(() => resolve()));

@@ -20,7 +20,8 @@ import type { PresentationScreen } from "@shared/schemas";
 import { audit, logSessionEvent } from "./audit";
 import { loadSession, syncSessionQuestions, sessionQuestionList, type SessionQuestionRow, type SessionRow } from "./sessions";
 import { scoreQuestion, publishPendingScores, publishScores } from "./scoring";
-import { createSnapshot, finalizeLeaderboard, invalidateRanking } from "./leaderboard";
+import { createSnapshot, finalizeLeaderboard, invalidateRanking, type SnapshotEntry } from "./leaderboard";
+import { enqueueSessionEnded } from "./integrations";
 import { getSnapshot } from "./snapshots";
 import { presentationOf, publicQuestion, timerDTO, presentationDTO, type PresentationRow } from "./views";
 
@@ -187,9 +188,11 @@ export async function sessionAction(
         }
         await set({ status: "ENCERRADA", endedAt: l.now, pausedAt: null });
         invalidateRanking(s.id);
-        await finalizeLeaderboard(l.tx, l.session, l.now, l.actor);
+        const finalSnap = await finalizeLeaderboard(l.tx, l.session, l.now, l.actor);
         const [fresh] = await l.tx.select().from(eventSessions).where(eq(eventSessions.id, s.id));
         l.session = fresh;
+        // integração (webhook da organização), apenas se configurada: resumo agregado da sessão
+        await enqueueSessionEnded(l.tx, l.now, fresh, (finalSnap?.entries ?? []) as SnapshotEntry[]);
         await log(l, "session.ended");
         await log(l, "prizes.revealed");
         await setPresentation(l, { screen: "PREMIACAO", leaderboardFrozenSnapshotId: null, leaderboardHidden: false });

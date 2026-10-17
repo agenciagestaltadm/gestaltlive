@@ -30,6 +30,7 @@ import { badRequest, conflict, forbidden, notFound, unauthorized } from "../lib/
 import { numericCode, randomToken, sha256 } from "../lib/crypto";
 import { cleanText, firstName, firstNameInitial, normalizeEmail, normalizePhone } from "../lib/normalize";
 import { audit } from "./audit";
+import { enqueueParticipantJoined } from "./integrations";
 import { JOINABLE_STATUSES, loadSession, sessionByCode, type SessionRow } from "./sessions";
 import { eventSettingsSchema, joinInputSchema, registrationConfigSchema, type RegistrationConfig } from "@shared/schemas";
 import type { QuestionSnapshot } from "./questions";
@@ -226,6 +227,16 @@ export async function joinSession(ctx: AppContext, code: string, raw: unknown, m
         textSnapshot: reg.consentMarketingText,
         ip: meta.ip ?? null,
         userAgent: meta.userAgent?.slice(0, 300) ?? null,
+      });
+    }
+    if (reg.marketingEnabled && input.consentMarketing) {
+      // integração (webhook da organização), apenas se configurada; nunca sem consentimento de marketing
+      await enqueueParticipantJoined(tx, ctx.now(), {
+        session,
+        person,
+        sp,
+        custom: customValues.map((c) => ({ key: fields.find((f) => f.id === c.fieldId)?.key ?? c.fieldId, value: c.value })),
+        consentVersion: reg.consentVersion,
       });
     }
     return sp;

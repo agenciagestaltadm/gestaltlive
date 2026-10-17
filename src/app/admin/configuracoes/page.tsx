@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Building2, History, KeyRound, Lock, Save, Trash2, UserPlus, Users } from "lucide-react";
+import { Building2, Copy, History, KeyRound, Lock, Plug, RefreshCw, RotateCcw, Save, Send, Trash2, UserPlus, Users, Webhook } from "lucide-react";
 import { orgCreateSchema, passwordSchema, userCreateSchema } from "@shared/schemas";
 import { admin } from "@/lib/api";
 import { fieldErrors, useAction, useApi } from "@/lib/hooks";
-import { fmtDateTime } from "@/lib/utils";
+import { fmtDateTime, fmtInt } from "@/lib/utils";
 import { PageHeader } from "@/components/admin/admin-shell";
 import { useAdmin } from "@/components/admin/admin-context";
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
@@ -26,6 +26,8 @@ import {
   Input,
   NativeSelect,
   Skeleton,
+  Stat,
+  Switch,
   Tabs,
   TabsContent,
   TabsList,
@@ -420,6 +422,287 @@ function AccountTab() {
   );
 }
 
+/* ================================================================== integrações */
+type OutboxStatus = "PENDENTE" | "ENVIADO" | "FALHOU";
+interface IntegrationsData {
+  webhook: { url: string; enabled: boolean; topics: string[]; secretHint: string; createdAt: string; updatedAt: string } | null;
+  topics: { key: string; label: string }[];
+  maxAttempts: number;
+  counts: Record<OutboxStatus, number>;
+  recent: {
+    id: string;
+    topic: string;
+    status: OutboxStatus;
+    attempts: number;
+    nextAttemptAt: string | null;
+    lastError: string | null;
+    createdAt: string;
+    processedAt: string | null;
+  }[];
+}
+
+const OUTBOX_STATUS: Record<OutboxStatus, { label: string; tone: "warning" | "positive" | "negative" }> = {
+  PENDENTE: { label: "Pendente", tone: "warning" },
+  ENVIADO: { label: "Enviado", tone: "positive" },
+  FALHOU: { label: "Falhou", tone: "negative" },
+};
+
+function IntegrationsTab() {
+  const { orgId } = useAdmin();
+  const q = useApi(() => admin.get<IntegrationsData>(`/orgs/${orgId}/integrations`), [orgId]);
+  const { run, pending } = useAction();
+  // rascunho do formulário: nulo = valores salvos (sem efeito para copiar dados do servidor)
+  const [draft, setDraft] = useState<{ url: string; enabled: boolean; topics: string[] } | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [secret, setSecret] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const saved = q.data && { url: q.data.webhook?.url ?? "", enabled: q.data.webhook?.enabled ?? true, topics: q.data.webhook?.topics ?? q.data.topics.map((t) => t.key) };
+  const form = draft ?? saved ?? { url: "", enabled: true, topics: [] };
+  const { url, enabled, topics } = form;
+  const edit = (patch: Partial<typeof form>) => setDraft({ ...form, ...patch });
+
+  const save = async () => {
+    const errs: Record<string, string> = {};
+    if (!url.trim()) errs.url = "Informe a URL do webhook.";
+    if (!topics.length) errs.topics = "Selecione ao menos um evento.";
+    setErrors(errs);
+    if (Object.keys(errs).length) return;
+    try {
+      const r = await admin.put<{ secret: string | null }>(`/orgs/${orgId}/integrations/webhook`, { url: url.trim(), enabled, topics });
+      toast.success("Integração salva.");
+      if (r.secret) setSecret(r.secret);
+      setDraft(null);
+      void q.reload();
+    } catch (e) {
+      setErrors(fieldErrors(e));
+      toast.error(e instanceof Error ? e.message : "Não foi possível salvar.");
+    }
+  };
+  const rotate = async () => {
+    const r = await run("rotate", () => admin.post<{ secret: string }>(`/orgs/${orgId}/integrations/webhook/rotate-secret`, {}), "Novo segredo gerado.");
+    if (r) {
+      setSecret(r.secret);
+      void q.reload();
+    }
+  };
+  const test = async () => {
+    const r = await run("test", () => admin.post<{ ok: boolean; status: number | null; error: string | null }>(`/orgs/${orgId}/integrations/webhook/test`, {}));
+    if (!r) return;
+    if (r.ok) toast.success(`Teste entregue (HTTP ${r.status}).`);
+    else toast.error(`O destino não confirmou o teste: ${r.error ?? "erro desconhecido"}.`);
+  };
+  const remove = async () => {
+    const ok = await run("remove", () => admin.del(`/orgs/${orgId}/integrations/webhook`), "Webhook removido. Envios pendentes foram cancelados.");
+    if (ok) {
+      setDraft(null);
+      void q.reload();
+    }
+    return ok !== undefined;
+  };
+  const retry = async (id: string) => {
+    const ok = await run(`retry:${id}`, () => admin.post(`/orgs/${orgId}/integrations/outbox/${id}/retry`, {}), "Item recolocado na fila.");
+    if (ok) void q.reload();
+  };
+  const copySecret = async () => {
+    if (!secret) return;
+    try {
+      await navigator.clipboard.writeText(secret);
+      toast.success("Segredo copiado.");
+    } catch {
+      toast.error("Não foi possível copiar. Selecione o texto e copie manualmente.");
+    }
+  };
+
+  if (q.loading && !q.data) return <Skeleton className="h-96" />;
+  if (q.error || !q.data) return <LoadError error={q.error} onRetry={q.reload} />;
+  const d = q.data;
+  const topicLabel = (k: string) => (k === "participant.joined" ? "Participante entrou" : k === "session.ended" ? "Sessão encerrada" : k);
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle>Webhook (CRM LIDIA e automações)</CardTitle>
+            <CardDescription>
+              Entrega eventos ao sistema da organização. Nada é enviado sem esta configuração, e o Gestalt Live não envia WhatsApp nem e-mail por conta
+              própria.
+            </CardDescription>
+          </div>
+          {d.webhook && (
+            <Badge tone={d.webhook.enabled ? "positive" : "muted"}>{d.webhook.enabled ? "Ativo" : "Desativado"}</Badge>
+          )}
+        </CardHeader>
+        <CardContent>
+          <form
+            className="grid gap-4"
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              void save();
+            }}
+          >
+            <Field label="URL de destino" htmlFor="wh-url" required error={errors.url} hint="Requisições POST com JSON. Em produção, apenas HTTPS.">
+              <Input id="wh-url" type="url" inputMode="url" placeholder="https://crm.exemplo.com.br/webhooks/gestalt" value={url} onChange={(e) => edit({ url: e.target.value })} maxLength={2000} aria-invalid={!!errors.url} />
+            </Field>
+            <fieldset className="space-y-2">
+              <legend className="mb-1 text-sm font-bold">Eventos enviados</legend>
+              {d.topics.map((t) => (
+                <label key={t.key} className="flex cursor-pointer items-start gap-3 rounded-xl border border-border p-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 size-4 accent-[#FF0068]"
+                    checked={topics.includes(t.key)}
+                    onChange={(e) => edit({ topics: e.target.checked ? [...topics, t.key] : topics.filter((x) => x !== t.key) })}
+                  />
+                  <span>
+                    <span className="font-bold">{topicLabel(t.key)}</span> <code className="font-mono text-xs text-muted-foreground">{t.key}</code>
+                    <span className="block text-muted-foreground">{t.label}</span>
+                  </span>
+                </label>
+              ))}
+              {errors.topics && (
+                <p className="text-xs font-bold text-negative" role="alert">
+                  {errors.topics}
+                </p>
+              )}
+            </fieldset>
+            <Switch checked={enabled} onCheckedChange={(v) => edit({ enabled: v })} label="Envio ativo (desativado, os eventos ficam retidos na fila)" />
+            {d.webhook && (
+              <p className="text-sm text-muted-foreground">
+                Segredo de assinatura: <code className="font-mono">{d.webhook.secretHint}</code> · atualizado em {fmtDateTime(d.webhook.updatedAt)}
+              </p>
+            )}
+            <div className="flex flex-wrap justify-end gap-2">
+              {d.webhook && (
+                <>
+                  <Button type="button" variant="ghost" className="text-negative" onClick={() => setConfirmRemove(true)}>
+                    <Trash2 /> Remover
+                  </Button>
+                  <Button type="button" variant="outline" onClick={rotate} loading={pending === "rotate"}>
+                    <RefreshCw /> Gerar novo segredo
+                  </Button>
+                  <Button type="button" variant="outline" onClick={test} loading={pending === "test"}>
+                    <Send /> Enviar teste
+                  </Button>
+                </>
+              )}
+              <Button type="submit">
+                <Save /> {d.webhook ? "Salvar" : "Ativar integração"}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Fila de envio</CardTitle>
+          <CardDescription>
+            Até {d.maxAttempts} tentativas com intervalo crescente. Itens com falha podem ser reenviados. O conteúdo dos eventos não é exibido aqui (pode
+            conter dados pessoais).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Stat label="Pendentes" value={<span className="tabular">{fmtInt(d.counts.PENDENTE ?? 0)}</span>} />
+            <Stat label="Enviados" value={<span className="tabular">{fmtInt(d.counts.ENVIADO ?? 0)}</span>} />
+            <Stat label="Com falha" value={<span className="tabular">{fmtInt(d.counts.FALHOU ?? 0)}</span>} />
+          </div>
+          {!d.recent.length ? (
+            <EmptyState icon={<Webhook />} title="Nenhum envio" description="Os eventos aparecem aqui quando a integração estiver ativa." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px] text-sm">
+                <thead className="border-b border-border text-left text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                  <tr>
+                    <th scope="col" className="py-2 pr-4">Criado em</th>
+                    <th scope="col" className="py-2 pr-4">Evento</th>
+                    <th scope="col" className="py-2 pr-4">Situação</th>
+                    <th scope="col" className="py-2 pr-4">Tentativas</th>
+                    <th scope="col" className="py-2 text-right">
+                      <span className="sr-only">Ações</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {d.recent.map((r) => (
+                    <tr key={r.id} className="align-top">
+                      <td className="whitespace-nowrap py-2.5 pr-4 tabular text-muted-foreground">{fmtDateTime(r.createdAt)}</td>
+                      <td className="py-2.5 pr-4">{topicLabel(r.topic)}</td>
+                      <td className="py-2.5 pr-4">
+                        <Badge tone={OUTBOX_STATUS[r.status]?.tone ?? "muted"}>{OUTBOX_STATUS[r.status]?.label ?? r.status}</Badge>
+                        {r.lastError && <div className="mt-1 max-w-xs truncate text-xs text-muted-foreground">{r.lastError}</div>}
+                        {r.status === "PENDENTE" && r.attempts > 0 && r.nextAttemptAt && (
+                          <div className="text-xs text-muted-foreground">Próxima tentativa: {fmtDateTime(r.nextAttemptAt)}</div>
+                        )}
+                      </td>
+                      <td className="py-2.5 pr-4 tabular">{r.attempts}</td>
+                      <td className="py-2.5 text-right">
+                        {r.status === "FALHOU" && d.webhook && (
+                          <Button size="sm" variant="outline" onClick={() => void retry(r.id)} loading={pending === `retry:${r.id}`}>
+                            <RotateCcw /> Reenviar
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Como validar os envios</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <p>
+            Cada requisição traz os cabeçalhos <code className="font-mono">X-Gestalt-Event</code>, <code className="font-mono">X-Gestalt-Delivery</code> (id
+            único, use para descartar duplicados), <code className="font-mono">X-Gestalt-Timestamp</code> e{" "}
+            <code className="font-mono">X-Gestalt-Signature</code>.
+          </p>
+          <p>
+            A assinatura é <code className="font-mono">sha256=</code> + HMAC-SHA256 em hexadecimal, com o segredo, sobre{" "}
+            <code className="font-mono">{"<timestamp>.<corpo>"}</code>. Responda com HTTP 2xx para confirmar o recebimento.
+          </p>
+          <p>
+            &quot;Participante entrou&quot; só é gerado com consentimento de marketing vigente; &quot;Sessão encerrada&quot; traz apenas números agregados e o
+            pódio pelo nome de exibição.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Dialog
+        open={!!secret}
+        onOpenChange={(v) => !v && setSecret(null)}
+        title="Segredo de assinatura"
+        description="Copie e guarde agora: por segurança, ele não será exibido novamente."
+        footer={
+          <>
+            <Button variant="outline" onClick={copySecret}>
+              <Copy /> Copiar
+            </Button>
+            <Button onClick={() => setSecret(null)}>Concluído</Button>
+          </>
+        }
+      >
+        <code className="block break-all rounded-xl bg-muted p-3 font-mono text-sm">{secret}</code>
+      </Dialog>
+      <ConfirmDialog
+        open={confirmRemove}
+        onOpenChange={setConfirmRemove}
+        title="Remover webhook?"
+        description="Nenhum evento será mais enviado e os itens pendentes da fila serão cancelados."
+        confirmLabel="Remover"
+        onConfirm={remove}
+      />
+    </div>
+  );
+}
+
 /* ================================================================== auditoria */
 interface AuditRow {
   id: string;
@@ -452,6 +735,15 @@ const ACTION_LABELS: Record<string, string> = {
   "session.delete": "Excluiu sessão",
   "session.screen_token": "Gerou novo link do telão",
   "prize.deliver": "Confirmou entrega de prêmio",
+  "participant.anonymize": "Anonimizou participante",
+  "consent.revoke": "Revogou consentimento de marketing",
+  "retention.run": "Rotina de retenção (LGPD)",
+  "integration.webhook.create": "Configurou webhook de integração",
+  "integration.webhook.update": "Alterou webhook de integração",
+  "integration.webhook.delete": "Removeu webhook de integração",
+  "integration.webhook.rotate_secret": "Gerou novo segredo do webhook",
+  "integration.webhook.test": "Enviou teste do webhook",
+  "integration.outbox.retry": "Reenviou item da fila de integração",
 };
 
 const ENTITY_LABELS: Record<string, string> = {
@@ -463,6 +755,7 @@ const ENTITY_LABELS: Record<string, string> = {
   question: "Pergunta",
   prize_award: "Premiação",
   participant: "Participante",
+  integration: "Integração",
 };
 
 function AuditTab() {
@@ -549,6 +842,7 @@ export default function SettingsPage() {
   const tabs = [
     { value: "organizacao", label: "Organização", icon: Building2, show: can("event.read") },
     { value: "equipe", label: "Equipe", icon: Users, show: can("event.read") },
+    { value: "integracoes", label: "Integrações", icon: Plug, show: can("members.manage") },
     { value: "conta", label: "Minha conta", icon: Lock, show: true },
     { value: "auditoria", label: "Auditoria", icon: History, show: can("audit.read") },
   ].filter((t) => t.show);
@@ -556,7 +850,7 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <PageHeader title="Configurações" description="Organização, equipe, sua conta e registro de auditoria." />
+      <PageHeader title="Configurações" description="Organização, equipe, integrações, sua conta e registro de auditoria." />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-6" aria-label="Seções das configurações">
           {tabs.map((t) => (
@@ -573,6 +867,11 @@ export default function SettingsPage() {
         {tabs.some((t) => t.value === "equipe") && (
           <TabsContent value="equipe">
             <TeamTab />
+          </TabsContent>
+        )}
+        {can("members.manage") && (
+          <TabsContent value="integracoes">
+            <IntegrationsTab />
           </TabsContent>
         )}
         <TabsContent value="conta">

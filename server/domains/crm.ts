@@ -4,7 +4,7 @@
  */
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { AppContext } from "../context";
-import { qc } from "../db/client";
+import { qc, type Tx } from "../db/client";
 import {
   answerOptionSelections,
   consentRecords,
@@ -197,27 +197,45 @@ export async function anonymizeParticipant(ctx: AppContext, actor: Actor, partic
   authorize(actor, p.orgId, "participants.manage");
   if (p.anonymizedAt) throw badRequest("Participante já anonimizado.");
   await ctx.db.transaction(async (tx) => {
-    await tx
-      .update(participants)
-      .set({ fullName: "Participante anonimizado", email: null, emailNorm: null, phone: null, phoneNorm: null, anonymizedAt: ctx.now(), updatedAt: ctx.now() })
-      .where(eq(participants.id, p.id));
-    const sps = await tx.select({ id: sessionParticipants.id }).from(sessionParticipants).where(eq(sessionParticipants.participantId, p.id));
-    if (sps.length) {
-      const ids = sps.map((s) => s.id);
-      await tx.update(sessionParticipants).set({ displayName: "Anônimo", uniqueEmail: null, uniquePhone: null }).where(inArray(sessionParticipants.id, ids));
-      await tx.delete(participantCustomValues).where(inArray(participantCustomValues.sessionParticipantId, ids));
-    }
-    await tx.insert(consentRecords).values({
-      orgId: p.orgId,
-      participantId: p.id,
-      purpose: "MARKETING",
-      granted: false,
-      textVersion: "anonimizacao",
-      textSnapshot: "Dados anonimizados a pedido do titular/organização.",
-      source: "ADMIN",
-    });
+    await anonymizeParticipantData(tx, ctx.now(), p, { source: "ADMIN", note: "Dados anonimizados a pedido do titular/organização." });
     await audit(tx, actor, p.orgId, "participant.anonymize", "participant", p.id, { reason });
   });
+}
+
+/**
+ * Núcleo da anonimização, sem autorização nem auditoria (o chamador registra quem agiu — usuário ou
+ * rotina do sistema). Idempotente: devolve false se o participante já estava anonimizado.
+ */
+export async function anonymizeParticipantData(
+  tx: Tx,
+  now: Date,
+  p: { id: string; orgId: string },
+  opts: { source: "ADMIN" | "SISTEMA"; note: string },
+) {
+  const updated = await tx
+    .update(participants)
+    .set({ fullName: "Participante anonimizado", email: null, emailNorm: null, phone: null, phoneNorm: null, anonymizedAt: now, updatedAt: now })
+    .where(and(eq(participants.id, p.id), isNull(participants.anonymizedAt)))
+    .returning({ id: participants.id });
+  if (!updated.length) return false;
+  const sps = await tx.select({ id: sessionParticipants.id }).from(sessionParticipants).where(eq(sessionParticipants.participantId, p.id));
+  if (sps.length) {
+    const ids = sps.map((s) => s.id);
+    await tx.update(sessionParticipants).set({ displayName: "Anônimo", uniqueEmail: null, uniquePhone: null }).where(inArray(sessionParticipants.id, ids));
+    await tx.delete(participantCustomValues).where(inArray(participantCustomValues.sessionParticipantId, ids));
+  }
+  // eventos de integração ainda guardam os dados de contato — removidos junto (enviados ou não)
+  await tx.delete(integrationOutbox).where(eq(integrationOutbox.participantId, p.id));
+  await tx.insert(consentRecords).values({
+    orgId: p.orgId,
+    participantId: p.id,
+    purpose: "MARKETING",
+    granted: false,
+    textVersion: "anonimizacao",
+    textSnapshot: opts.note,
+    source: opts.source,
+  });
+  return true;
 }
 
 export async function exportParticipantsCsv(ctx: AppContext, actor: Actor, orgId: string, f: ParticipantFilter) {
@@ -253,12 +271,4 @@ export async function exportParticipantsCsv(ctx: AppContext, actor: Actor, orgId
       { key: "createdAt", label: "Primeiro cadastro" },
     ],
   );
-}
-
-/**
- * Camada de integração (CRM LIDIA, webhooks, automações): enfileira eventos no outbox.
- * Nenhuma mensagem é enviada automaticamente nesta versão — um conector futuro consumirá a fila.
- */
-export async function enqueueIntegration(ctx: AppContext, orgId: string, topic: string, payload: Record<string, unknown>) {
-  await ctx.db.insert(integrationOutbox).values({ orgId, topic, payload });
 }

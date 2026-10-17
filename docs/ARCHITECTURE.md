@@ -63,9 +63,10 @@
 
 ## Modelo de dados
 
-27 tabelas (ver `server/db/schema.ts` e `server/db/migrations/`). Ajustes em relação à sugestão original:
+30 tabelas (ver `server/db/schema.ts` e `server/db/migrations/`). Ajustes em relação à sugestão original:
 - `scoring_rules` → coluna `questions.scoring` (jsonb validado por Zod) e congelada em `question_versions.snapshot`.
-- `auth_sessions`, `prize_awards`, `disqualifications`, `integration_outbox` adicionadas.
+- `auth_sessions`, `prize_awards`, `disqualifications`, `integration_outbox` e `integration_webhooks` adicionadas.
+- Tarefas periódicas em `server/runtime.ts`: fechamento de perguntas por tempo (250 ms), consumidor do outbox de integrações (15 s, `server/domains/integrations.ts`) e retenção LGPD (1 h, `server/domains/retention.ts`). Ambas as tarefas de manutenção são idempotentes e seguras com várias instâncias.
 - Templates guardam o questionário no mesmo formato de importação/exportação (`gestalt-live/questionario` v1).
 - Todas as tabelas de tenant possuem `org_id`; consultas sempre partem de uma entidade cuja organização é autorizada.
 

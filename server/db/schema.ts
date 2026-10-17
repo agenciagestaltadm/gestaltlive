@@ -635,7 +635,11 @@ export const auditLogs = pgTable(
   (t) => [index("audit_org_idx").on(t.orgId, t.createdAt), index("audit_entity_idx").on(t.entityType, t.entityId)],
 );
 
-/** Outbox para futuras integrações (CRM LIDIA, webhooks). Nada é enviado automaticamente nesta versão. */
+/**
+ * Outbox de integrações (CRM LIDIA, webhooks). Eventos só são enfileirados quando a organização tem
+ * um webhook ativo (integration_webhooks); o consumidor (server/domains/integrations.ts) entrega com
+ * assinatura HMAC e novas tentativas com backoff. Status: PENDENTE → ENVIADO | FALHOU.
+ */
 export const integrationOutbox = pgTable(
   "integration_outbox",
   {
@@ -645,8 +649,31 @@ export const integrationOutbox = pgTable(
     payload: jsonb("payload").notNull(),
     status: text("status").notNull().default("PENDENTE"),
     attempts: integer("attempts").notNull().default(0),
+    /** Próxima tentativa (também funciona como reserva enquanto uma instância entrega o item). */
+    nextAttemptAt: ts("next_attempt_at"),
+    lastError: text("last_error"),
+    /** Participante a que o evento se refere — o item é removido na anonimização. */
+    participantId: uuid("participant_id").references(() => participants.id, { onDelete: "cascade" }),
     createdAt: createdAt(),
     processedAt: ts("processed_at"),
   },
-  (t) => [index("outbox_status_idx").on(t.status, t.createdAt)],
+  (t) => [
+    index("outbox_status_idx").on(t.status, t.createdAt),
+    index("outbox_org_idx").on(t.orgId, t.createdAt),
+    index("outbox_participant_idx").on(t.participantId),
+  ],
 );
+
+/** Webhook de integração da organização (opcional). O segredo só é exibido na criação/rotação. */
+export const integrationWebhooks = pgTable("integration_webhooks", {
+  orgId: uuid("org_id")
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  url: text("url").notNull(),
+  secret: text("secret").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  /** Tópicos assinados (INTEGRATION_TOPICS em server/domains/integrations.ts). */
+  topics: jsonb("topics").$type<string[]>().notNull().default([]),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
