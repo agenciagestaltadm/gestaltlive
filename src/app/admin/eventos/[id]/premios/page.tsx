@@ -105,7 +105,9 @@ export default function EventPrizesPage() {
   const [drafts, setDrafts] = useState<Record<number, Draft>>(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  useEffect(() => setDrafts(initial), [initial]);
+  useEffect(() => {
+    setDrafts(initial);
+  }, [initial]);
   const dirty = JSON.stringify(drafts) !== JSON.stringify(initial);
   const set = (rank: number, k: keyof Draft, v: string) => setDrafts((d) => ({ ...d, [rank]: { ...d[rank], [k]: v } }));
 

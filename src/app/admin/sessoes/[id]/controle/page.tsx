@@ -107,7 +107,9 @@ export default function ControlPage() {
     });
   }, []);
   const [panel, setPanel] = useState<string | null>(null);
-  useEffect(() => setPanel(new URLSearchParams(window.location.search).get("painel")), []);
+  useEffect(() => {
+    setPanel(new URLSearchParams(window.location.search).get("painel"));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -163,7 +165,9 @@ export default function ControlPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q?.sessionQuestionId, q?.state, crossQ]);
 
-  useEffect(() => setViewChart(null), [selected]);
+  useEffect(() => {
+    setViewChart(null);
+  }, [selected]);
 
   // atalhos de teclado
   useEffect(() => {

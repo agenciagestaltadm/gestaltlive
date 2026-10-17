@@ -43,7 +43,9 @@ function RegistrationSection({ event, onSaved, readOnly }: { event: EventDetail;
   const [reg, setReg] = useState<RegistrationConfig>(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  useEffect(() => setReg(initial), [initial]);
+  useEffect(() => {
+    setReg(initial);
+  }, [initial]);
   const dirty = JSON.stringify(reg) !== JSON.stringify(initial);
   const set = <K extends keyof RegistrationConfig>(k: K, v: RegistrationConfig[K]) => setReg((r) => ({ ...r, [k]: v }));
 
@@ -322,7 +324,9 @@ function CustomFieldsSection({ event, onSaved, readOnly }: { event: EventDetail;
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ open: boolean; index: number | null }>({ open: false, index: null });
-  useEffect(() => setFields(initial), [initial]);
+  useEffect(() => {
+    setFields(initial);
+  }, [initial]);
   const dirty = JSON.stringify(fields) !== JSON.stringify(initial);
   const keys = fields.map((f) => f.key);
 

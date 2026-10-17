@@ -12,7 +12,9 @@ export function DebouncedInput({
   const [local, setLocal] = useState(value);
   const commitRef = useRef(onCommit);
   commitRef.current = onCommit;
-  useEffect(() => setLocal(value), [value]);
+  useEffect(() => {
+    setLocal(value);
+  }, [value]);
   useEffect(() => {
     if (local === value) return;
     const t = setTimeout(() => commitRef.current(local), delay);

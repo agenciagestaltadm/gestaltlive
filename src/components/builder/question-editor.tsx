@@ -113,7 +113,9 @@ export function QuestionEditor(props: QuestionEditorProps) {
         <EditorBody
           key={props.question?.id ?? `nova-${props.initialType ?? ""}`}
           {...props}
-          onDirtyChange={(d) => (dirty.current = d)}
+          onDirtyChange={(d) => {
+            dirty.current = d;
+          }}
           onCancel={() => close(false)}
           onSavedInternal={(saved) => {
             dirty.current = false;
@@ -162,7 +164,9 @@ function EditorBody({
   const [chartNotice, setChartNotice] = useState<string | null>(null);
   const optionsBackup = useRef<OptionForm[] | null>(null);
 
-  useEffect(() => onDirtyChange(isDirty), [isDirty, onDirtyChange]);
+  useEffect(() => {
+    onDirtyChange(isDirty);
+  }, [isDirty, onDirtyChange]);
 
   const type = v.type;
   const numeric = isNumericType(type);

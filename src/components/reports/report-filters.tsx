@@ -45,7 +45,9 @@ export function ReportFilters({
   const [draft, setDraft] = useState<SegmentFilter>(value);
   const valueKey = JSON.stringify(value);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => setDraft(value), [valueKey]);
+  useEffect(() => {
+    setDraft(value);
+  }, [valueKey]);
 
   const fieldValues = useMemo(() => {
     if (!source || !draft.fieldKey) return [];
