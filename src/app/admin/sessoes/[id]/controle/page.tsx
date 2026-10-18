@@ -40,6 +40,7 @@ import {
   DoorOpen,
   XCircle,
   ExternalLink,
+  Presentation,
 } from "lucide-react";
 import type { ControlQuestionDTO, ControlStateDTO, LeaderboardDTO, ResultsDTO, SatisfactionDTO, ActivityItemDTO } from "@shared/types";
 import { RT } from "@shared/types";
@@ -289,6 +290,11 @@ export default function ControlPage() {
             <span className={cn("rounded-lg p-2", status === "conectado" ? "text-positive" : "text-warning")}>{status === "conectado" ? <Wifi className="size-5" /> : <WifiOff className="size-5" />}</span>
           </Tip>
           <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" size="sm" asChild>
+              <Link href={`/admin/sessoes/${id}/apresentador`}>
+                <Presentation /> Modo apresentador
+              </Link>
+            </Button>
             {s.screenUrl && (
               <Button variant="secondary" size="sm" onClick={() => openWindow(s.screenUrl!, "telao")}>
                 <Monitor /> Abrir telão

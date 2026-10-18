@@ -26,9 +26,10 @@ Para participar pelo celular na mesma rede, acesse o painel pelo IP do computado
 1. **Admin → Eventos →** evento demo → **Sessões → Nova sessão**.
 2. **Abrir controle** → *Abrir inscrições* → *Abrir telão* (outra janela/projetor) → *Iniciar sessão*.
 3. Público lê o QR Code → cadastro → aguarda.
-4. No painel: **Liberar pergunta** (ou tecla `N`), acompanhe o gráfico ao vivo, **Fechar**, **Exibir resultado** (`R`), **Revelar resposta correta** (`C`), telas do telão (`1`–`7`), congelar/ocultar ranking.
-5. **Encerrar** → resultado oficial congelado e pódio com prêmios no telão.
-6. **Relatórios** → indicadores, gráficos, PDF/CSV/XLSX, comparativo entre turmas; **Participantes** → CRM.
+4. Opcional: em **Apresentações**, importe os slides do Canva, monte a linha do tempo e use **Apresentar** na sessão (modo apresentador).
+5. No painel: **Liberar pergunta** (ou tecla `N`), acompanhe o gráfico ao vivo, **Fechar**, **Exibir resultado** (`R`), **Revelar resposta correta** (`C`), telas do telão (`1`–`7`), congelar/ocultar ranking.
+6. **Encerrar** → resultado oficial congelado e pódio com prêmios no telão.
+7. **Relatórios** → indicadores, gráficos, PDF/CSV/XLSX, comparativo entre turmas; **Participantes** → CRM.
 
 ## Produção
 
@@ -73,6 +74,8 @@ Detalhes, variáveis, proxy e checklist em [docs/DEPLOY.md](docs/DEPLOY.md).
 
 **Participante** — app web mobile-first (Ao vivo, Ranking, Prêmios, Meu perfil), safe areas, teclado virtual, estados de carregamento/desconexão/reconexão/erro, feedback de acerto/erro e pontos, sons opcionais (só após ativação), histórico individual, gestão de consentimento.
 
+**Gerenciador de Apresentações** — slides do Canva (JPG/PNG) enviados em lote com ordenação natural, biblioteca deduplicada com miniaturas, linha do tempo única com arrastar e soltar intercalando slides, perguntas, quizzes, enquetes, gráficos, ranking, satisfação, QR Code, premiação e telas personalizadas; desfazer/refazer e salvamento automático; modo apresentador (teclado e passador de slides, notas privadas, prévia do próximo item, tela preta/pausa, cronômetros); telão com transições e pré-carregamento; ensaio sem gravar dados; duplicação para novos eventos. Detalhes em [docs/APRESENTACOES.md](docs/APRESENTACOES.md).
+
 **Relatórios e CRM** — relatório visual por sessão (participação, distribuição, acerto, dificuldade, distribuição de pontuações, Top 10, classificação, satisfação, perfil) com segmentação por campo ou resposta; PDF, CSV e XLSX; visão geral com filtros (evento, período, palestrante); comparativo entre turmas; lista de participantes com busca, filtros e segmentação por resposta; perfil individual; revogação de marketing; anonimização; exportação autorizada.
 
 ## Critérios de aceitação → verificação
@@ -98,10 +101,11 @@ Detalhes, variáveis, proxy e checklist em [docs/DEPLOY.md](docs/DEPLOY.md).
 | 17 | Acesso não autorizado negado | `realtime.test.ts` (API, socket, telão, outra org, palestrante, CSRF) |
 | 18 | Carga de 300 participantes | [docs/LOAD_TEST.md](docs/LOAD_TEST.md) |
 
-Situação atual: **65 testes unitários/integração e 3 E2E passando**, `tsc` sem erros, ESLint com 0 erros.
+Situação atual: **101 testes unitários/integração (12 arquivos) e 5 E2E passando**, `tsc` sem erros, ESLint com 0 erros, `npm run build` ok.
 
 ## Documentação
 - [Arquitetura](docs/ARCHITECTURE.md) e [decisões (ADRs)](docs/adr/)
+- [Gerenciador de Apresentações](docs/APRESENTACOES.md)
 - [Implantação](docs/DEPLOY.md)
 - [Teste de carga](docs/LOAD_TEST.md)
 - [Privacidade e LGPD](docs/LGPD.md)

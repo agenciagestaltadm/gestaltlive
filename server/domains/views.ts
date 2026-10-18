@@ -24,6 +24,7 @@ import { answeredCount, computeResults, resultsPublic } from "./results";
 import { controlLeaderboard, myStanding, podium, publicLeaderboard, sessionPrizes } from "./leaderboard";
 import { myVote, satisfactionData } from "./satisfaction";
 import { myAnswerFor } from "./answers";
+import { screenPresenterBlock } from "./presenter-view";
 import type { ParticipantAuth } from "./participants";
 
 export type PresentationRow = typeof presentationStates.$inferSelect;
@@ -167,9 +168,16 @@ export async function screenState(ctx: AppContext, session: SessionRow, origin?:
   const tx = ctx.db;
   const pres = await presentationOf(tx, session.id);
   const now = ctx.now();
-  const sq = await focusQuestion(tx, session.id, pres);
+  // telão: a pergunta escolhida para a tela tem prioridade sobre a pergunta aberta (item no telão ≠ pergunta aberta);
+  // no modo apresentador a pergunta pode aparecer no telão antes de ser liberada (sem gabarito).
+  let sq = await focusQuestion(tx, session.id, pres);
+  if (pres.sessionQuestionId && (pres.screen === "PERGUNTA" || pres.screen === "RESULTADO") && sq?.id !== pres.sessionQuestionId) {
+    const [chosen] = await tx.select().from(sessionQuestions).where(eq(sessionQuestions.id, pres.sessionQuestionId));
+    if (chosen) sq = chosen;
+  }
   const total = await questionTotal(tx, session.id);
   const registered = await registeredCount(tx, session.id);
+  const presenter = await screenPresenterBlock(tx, session.id);
   const sat = pres.screen === "SATISFACAO" || pres.showSatisfactionToScreen ? await satisfactionData(tx, session.id) : null;
   let closing: ScreenStateDTO["closing"] = null;
   if (pres.screen === "ENCERRAMENTO") {
@@ -188,6 +196,7 @@ export async function screenState(ctx: AppContext, session: SessionRow, origin?:
   return {
     session: await publicSessionDTO(tx, ctx, session, origin),
     presentation: presentationDTO(pres),
+    presenter,
     question: sq ? await publicQuestion(tx, sq, total, now) : null,
     results: sq && resultsPublic(sq) ? await computeResults(tx, sq, { includeCorrect: false }) : null,
     leaderboard: await publicLeaderboard(tx, session, pres),

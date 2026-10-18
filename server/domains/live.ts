@@ -27,7 +27,7 @@ import { presentationOf, publicQuestion, timerDTO, presentationDTO, type Present
 
 type Effect = () => void | Promise<void>;
 
-interface LiveCtx {
+export interface LiveCtx {
   tx: Tx;
   session: SessionRow;
   now: Date;
@@ -40,7 +40,7 @@ interface LiveCtx {
 
 const notLive = () => new AppError(409, "SESSAO_NAO_AO_VIVO", "Inicie a sessão para liberar perguntas.");
 
-async function withLive<T>(ctx: AppContext, actor: Actor | null, sessionId: string, fn: (l: LiveCtx) => Promise<T>): Promise<T> {
+export async function withLive<T>(ctx: AppContext, actor: Actor | null, sessionId: string, fn: (l: LiveCtx) => Promise<T>): Promise<T> {
   if (actor) await loadSession(ctx, actor, sessionId, "session.control");
   const lc: LiveCtx = {
     tx: null as unknown as Tx,
@@ -71,11 +71,11 @@ async function withLive<T>(ctx: AppContext, actor: Actor | null, sessionId: stri
   return result;
 }
 
-async function log(l: LiveCtx, type: string, payload: Record<string, unknown> = {}) {
+export async function log(l: LiveCtx, type: string, payload: Record<string, unknown> = {}) {
   await logSessionEvent(l.tx, l.session.orgId, l.session.id, type, payload, l.actor?.user.id ?? null);
 }
 
-async function setPresentation(l: LiveCtx, patch: Partial<Pick<PresentationRow, "screen" | "sessionQuestionId" | "leaderboardHidden" | "leaderboardFrozenSnapshotId" | "showSatisfactionToScreen">>) {
+export async function setPresentation(l: LiveCtx, patch: Partial<Pick<PresentationRow, "screen" | "sessionQuestionId" | "leaderboardHidden" | "leaderboardFrozenSnapshotId" | "showSatisfactionToScreen">>) {
   const cur = await presentationOf(l.tx, l.session.id);
   const next = { ...cur, ...patch };
   const same =
@@ -101,13 +101,13 @@ async function setPresentation(l: LiveCtx, patch: Partial<Pick<PresentationRow, 
   return updated;
 }
 
-async function lockQuestion(l: LiveCtx, sqId: string) {
+export async function lockQuestion(l: LiveCtx, sqId: string) {
   const [sq] = await l.tx.select().from(sessionQuestions).where(eq(sessionQuestions.id, sqId)).for("update");
   if (!sq || sq.sessionId !== l.session.id) throw notFound("Pergunta não encontrada nesta sessão.");
   return sq;
 }
 
-async function openQuestionRow(l: LiveCtx) {
+export async function openQuestionRow(l: LiveCtx) {
   const [sq] = await l.tx
     .select()
     .from(sessionQuestions)
@@ -275,7 +275,15 @@ export async function timerAction(ctx: AppContext, actor: Actor, sessionId: stri
 }
 
 /* ================================================================== perguntas */
-async function closeInternal(l: LiveCtx, sq: SessionQuestionRow, ctx: AppContext) {
+/** Ganchos executados (na mesma transação) após o encerramento de uma pergunta — usados pelo modo apresentador. */
+type CloseHook = (l: LiveCtx, closed: SessionQuestionRow, ctx: AppContext) => Promise<void>;
+const closeHooks: CloseHook[] = [];
+export function onQuestionClosed(hook: CloseHook) {
+  if (!closeHooks.includes(hook)) closeHooks.push(hook);
+}
+
+/** reason "substituida": fechada porque outra pergunta foi liberada (não dispara ganchos). */
+export async function closeInternal(l: LiveCtx, sq: SessionQuestionRow, ctx: AppContext, reason: "manual" | "substituida" = "manual") {
   sq = await stopTimer(l, sq);
   const autoShow = sq.resultsMode === "APOS_ENCERRAMENTO" && !sq.resultsShownAt;
   const [closed] = await l.tx
@@ -290,6 +298,7 @@ async function closeInternal(l: LiveCtx, sq: SessionQuestionRow, ctx: AppContext
   l.resultsChanged.add(closed.id);
   const dto = { sessionQuestionId: closed.id, state: "FECHADA", timer: timerDTO(closed, l.now) };
   l.effects.push(() => ctx.rt.broadcast(l.session.id, RT.questionClosed, dto));
+  if (reason !== "substituida") for (const h of closeHooks) await h(l, closed, ctx);
   return closed;
 }
 
@@ -297,12 +306,12 @@ export async function openQuestion(ctx: AppContext, actor: Actor, sessionId: str
   return withLive(ctx, actor, sessionId, (l) => openInternal(l, sqId, ctx));
 }
 
-async function openInternal(l: LiveCtx, sqId: string, ctx: AppContext) {
+export async function openInternal(l: LiveCtx, sqId: string, ctx: AppContext) {
   if (l.session.status !== "AO_VIVO") throw notLive();
   const sq = await lockQuestion(l, sqId);
   if (sq.state !== "PRONTA") throw conflict("Esta pergunta já foi liberada nesta sessão.");
   const open = await openQuestionRow(l);
-  if (open) await closeInternal(l, open, ctx);
+  if (open) await closeInternal(l, open, ctx, "substituida");
   // pontuações pendentes das perguntas anteriores são publicadas ao avançar
   const published = await publishPendingScores(l.tx, l.session.id, l.now);
   if (published.length) {
@@ -503,6 +512,7 @@ export async function closeExpiredQuestions(ctx: AppContext) {
       limit: sessionQuestions.timeLimitMs,
       acc: sessionQuestions.timerAccumulatedMs,
       since: sessionQuestions.timerRunningSince,
+      autoCloseOverride: sessionQuestions.autoClose,
       settings: eventSessions.settings,
     })
     .from(sessionQuestions)
@@ -512,7 +522,8 @@ export async function closeExpiredQuestions(ctx: AppContext) {
   let closed = 0;
   for (const r of rows) {
     if (elapsedMs({ limitMs: r.limit, accumulatedMs: r.acc, runningSince: r.since }, now) < (r.limit ?? Infinity)) continue;
-    const autoClose = (r.settings as { autoCloseOnTimer?: boolean }).autoCloseOnTimer !== false;
+    // configuração da pergunta (definida pelo item da apresentação) prevalece sobre a da sessão
+    const autoClose = r.autoCloseOverride ?? (r.settings as { autoCloseOnTimer?: boolean }).autoCloseOnTimer !== false;
     try {
       if (autoClose) {
         const res = await closeQuestion(ctx, null, r.sessionId, r.id);

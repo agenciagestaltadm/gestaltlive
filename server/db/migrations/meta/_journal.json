@@ -15,6 +15,13 @@
       "when": 1792205142756,
       "tag": "0001_integracoes_retencao",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792322383074,
+      "tag": "0002_apresentacoes",
+      "breakpoints": true
     }
   ]
 }

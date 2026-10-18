@@ -19,6 +19,7 @@ import { badRequest, conflict, notFound } from "../lib/errors";
 import { randomToken, safeEqual, shortCode } from "../lib/crypto";
 import { audit } from "./audit";
 import { loadEvent } from "./events";
+import { assertPresentationForSession } from "./presentations";
 import { eventSettingsSchema, registrationConfigSchema, sessionInputSchema } from "@shared/schemas";
 import type { PublicSessionDTO } from "@shared/types";
 
@@ -123,6 +124,7 @@ export async function createSession(ctx: AppContext, actor: Actor, eventId: stri
   if (ev.archivedAt) throw badRequest("Evento arquivado. Desarquive para criar novas sessões.");
   const input = sessionInputSchema.parse(raw);
   return ctx.db.transaction(async (tx) => {
+    await assertPresentationForSession(tx, input.presentationId ?? null, { orgId: ev.orgId, eventId: ev.id });
     const code = await uniqueCode(tx);
     const [s] = await tx
       .insert(eventSessions)
@@ -133,6 +135,7 @@ export async function createSession(ctx: AppContext, actor: Actor, eventId: stri
         code,
         status: input.scheduledAt ? "AGENDADA" : "RASCUNHO",
         scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
+        presentationId: input.presentationId ?? null,
         screenTokenNonce: randomToken(12),
         registration: registrationConfigSchema.parse(ev.registration),
         settings: eventSettingsSchema.parse(ev.settings),
@@ -158,6 +161,7 @@ export async function listSessions(ctx: AppContext, actor: Actor, eventId: strin
       startedAt: eventSessions.startedAt,
       endedAt: eventSessions.endedAt,
       finalizedAt: eventSessions.finalizedAt,
+      presentationId: eventSessions.presentationId,
       createdAt: eventSessions.createdAt,
       participants: sql<number>`(select count(*)::int from ${sessionParticipants} where ${sessionParticipants.sessionId} = ${qc(eventSessions.id)})`,
     })
@@ -212,10 +216,20 @@ export async function getSessionAdmin(ctx: AppContext, actor: Actor, id: string,
 export async function updateSession(ctx: AppContext, actor: Actor, id: string, raw: unknown) {
   const s = await loadSession(ctx, actor, id, "session.create");
   const input = sessionInputSchema.parse(raw);
-  const status = s.status === "RASCUNHO" || s.status === "AGENDADA" ? (input.scheduledAt ? "AGENDADA" : "RASCUNHO") : s.status;
+  if (input.presentationId !== undefined) await assertPresentationForSession(ctx.db, input.presentationId, s);
+  // campos omitidos no corpo mantêm o valor atual (ex.: trocar só a apresentação não apaga o agendamento)
+  const hasSchedule = typeof raw === "object" && raw !== null && "scheduledAt" in raw;
+  const scheduledAt = hasSchedule ? (input.scheduledAt ? new Date(input.scheduledAt) : null) : s.scheduledAt;
+  const status = s.status === "RASCUNHO" || s.status === "AGENDADA" ? (scheduledAt ? "AGENDADA" : "RASCUNHO") : s.status;
   const [u] = await ctx.db
     .update(eventSessions)
-    .set({ name: input.name, scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null, status, updatedAt: ctx.now() })
+    .set({
+      name: input.name,
+      scheduledAt,
+      status,
+      ...(input.presentationId !== undefined && { presentationId: input.presentationId }),
+      updatedAt: ctx.now(),
+    })
     .where(eq(eventSessions.id, id))
     .returning();
   return sanitizeSession(u);

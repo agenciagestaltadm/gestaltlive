@@ -18,6 +18,7 @@ import { authorize } from "../auth/permissions";
 import { badRequest, conflict, notFound } from "../lib/errors";
 import { audit } from "./audit";
 import { copyEventQuestions, exportQuestionnaire, importQuestionsInto } from "./questions";
+import { copyPresentationsForEvent } from "./presentations";
 import {
   customFieldInputSchema,
   eventInputSchema,
@@ -197,7 +198,8 @@ export async function duplicateEvent(ctx: AppContext, actor: Actor, id: string) 
         createdByUserId: actor.user.id,
       })
       .returning();
-    await copyEventQuestions(tx, ev.id, copy.id, ev.orgId);
+    const questionMap = await copyEventQuestions(tx, ev.id, copy.id, ev.orgId);
+    await copyPresentationsForEvent(tx, ev.id, copy.id, ev.orgId, questionMap, actor.user.id);
     const prizes = await tx.select().from(eventPrizes).where(eq(eventPrizes.eventId, ev.id));
     if (prizes.length) {
       await tx.insert(eventPrizes).values(

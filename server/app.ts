@@ -36,6 +36,9 @@ import * as crm from "./domains/crm";
 import * as integrations from "./domains/integrations";
 import { audit, listAudit } from "./domains/audit";
 import { saveUpload, readUpload } from "./domains/uploads";
+import * as assets from "./domains/assets";
+import * as pres from "./domains/presentations";
+import { presenterCommand, presenterSnapshot } from "./domains/presenter";
 import { disqualifySchema, loginSchema, orgCreateSchema, registrationConfigSchema, scoreAdjustmentSchema, SCREENS, userCreateSchema } from "@shared/schemas";
 import { prizeAwards, sessionParticipants, sessionQuestions, participants as participantsTable } from "./db/schema";
 import { and, ilike, or, desc, sql } from "drizzle-orm";
@@ -64,7 +67,10 @@ export function createApp(ctx: AppContext) {
   });
   app.notFound((c) => c.json({ error: { code: "NAO_ENCONTRADO", message: "Rota não encontrada." } }, 404));
 
-  app.use("/api/*", bodyLimit({ maxSize: 6 * 1024 * 1024, onError: (c) => c.json({ error: { code: "MUITO_GRANDE", message: "Requisição muito grande." } }, 413) }));
+  const tooLarge = bodyLimit({ maxSize: 6 * 1024 * 1024, onError: (c) => c.json({ error: { code: "MUITO_GRANDE", message: "Requisição muito grande." } }, 413) });
+  const slideLimit = bodyLimit({ maxSize: assets.MAX_SLIDE_BYTES + 512 * 1024, onError: (c) => c.json({ error: { code: "MUITO_GRANDE", message: "Slide maior que o limite de 20 MB." } }, 413) });
+  // slides do Canva podem ser grandes: limite próprio para o envio de slides
+  app.use("/api/*", (c, next) => (c.req.method === "POST" && c.req.path === "/api/admin/assets" ? slideLimit(c, next) : tooLarge(c, next)));
 
   app.get("/api/health", (c) => c.json({ ok: true, time: new Date().toISOString() }));
 
@@ -479,7 +485,73 @@ export function createApp(ctx: AppContext) {
     return c.json(await saveUpload(ctx, orgId, file), 201);
   });
 
+  /* ============================================================ gerenciador de apresentações */
+  admin.get("/assets", async (c) =>
+    c.json(await assets.listAssets(ctx, c.get("actor"), requireOrgId(c), { q: q(c, "q"), folder: q(c, "folder"), page: Number(q(c, "page") ?? 1), pageSize: Number(q(c, "pageSize") ?? 60) })),
+  );
+  admin.post("/assets", async (c) => {
+    const orgId = requireOrgId(c);
+    const form = await c.req.formData();
+    const file = form.get("file");
+    if (!(file instanceof File)) throw badRequest("Envie um arquivo no campo 'file'.");
+    const folder = typeof form.get("folder") === "string" ? (form.get("folder") as string) : null;
+    const r = await assets.uploadAsset(ctx, c.get("actor"), orgId, file, folder);
+    return c.json(r, r.reused ? 200 : 201);
+  });
+  admin.patch("/assets/:id", async (c) =>
+    c.json(await assets.updateAsset(ctx, c.get("actor"), pid(c.req.param("id")), await body(c, z.object({ folder: z.string().max(80).nullable().optional(), originalName: z.string().min(1).max(200).optional() })))),
+  );
+  admin.get("/assets/:id/usage", async (c) => c.json(await assets.assetUsage(ctx, c.get("actor"), pid(c.req.param("id")))));
+  admin.delete("/assets/:id", async (c) => {
+    await assets.deleteAsset(ctx, c.get("actor"), pid(c.req.param("id")));
+    return c.json({ ok: true });
+  });
+  admin.get("/presentations", async (c) => c.json(await pres.listPresentations(ctx, c.get("actor"), requireOrgId(c), { eventId: q(c, "eventId") })));
+  admin.post("/presentations", async (c) => c.json(await pres.createPresentation(ctx, c.get("actor"), requireOrgId(c), await body(c)), 201));
+  admin.get("/presentations/:id", async (c) => c.json(await pres.getPresentation(ctx, c.get("actor"), pid(c.req.param("id")))));
+  admin.put("/presentations/:id", async (c) => c.json(await pres.updatePresentation(ctx, c.get("actor"), pid(c.req.param("id")), await body(c))));
+  admin.delete("/presentations/:id", async (c) => {
+    await pres.deletePresentation(ctx, c.get("actor"), pid(c.req.param("id")));
+    return c.json({ ok: true });
+  });
+  admin.put("/presentations/:id/items", async (c) => c.json(await pres.replaceItems(ctx, c.get("actor"), pid(c.req.param("id")), await body(c))));
+  admin.post("/presentations/:id/slides", async (c) => {
+    const input = await body(c, z.object({ assetIds: z.array(z.uuid()).min(1).max(1000), insertAt: z.number().int().min(0).nullable().optional(), order: z.enum(["natural", "pedida"]).optional() }));
+    return c.json(await pres.addSlides(ctx, c.get("actor"), pid(c.req.param("id")), input.assetIds, input.insertAt, input.order));
+  });
+  admin.post("/presentations/:id/duplicate", async (c) => {
+    const input = await body(c, z.object({ targetEventId: z.uuid().nullable().optional(), title: z.string().max(160).nullable().optional() }));
+    return c.json(await pres.duplicatePresentation(ctx, c.get("actor"), pid(c.req.param("id")), input), 201);
+  });
+  const presenterResponse = async (c: Context<Env>, id: string) => {
+    const s = await sessionsSvc.loadSession(ctx, c.get("actor"), id, "session.control");
+    return c.json({ control: await controlState(ctx, s, requestOrigin(c, ctx)), presenter: await presenterSnapshot(ctx, s.id) });
+  };
+  admin.get("/sessions/:id/presenter", async (c) => presenterResponse(c, pid(c.req.param("id"))));
+  admin.post("/sessions/:id/presenter", async (c) => {
+    const id = pid(c.req.param("id"));
+    const cmd = await body(
+      c,
+      z.discriminatedUnion("action", [
+        z.object({ action: z.literal("start") }),
+        z.object({ action: z.enum(["next", "prev"]), fromItemId: z.uuid().nullable().optional() }),
+        z.object({ action: z.literal("goto"), toItemId: z.uuid() }),
+        z.object({ action: z.literal("override"), override: z.enum(["NENHUM", "TELA_PRETA", "PAUSA"]) }),
+        z.object({ action: z.literal("finish") }),
+      ]),
+    );
+    const r = await presenterCommand(ctx, c.get("actor"), id, cmd);
+    const res = await presenterResponse(c, id);
+    const data = (await res.json()) as Record<string, unknown>;
+    return c.json({ ...data, result: r });
+  });
+
   app.route("/api/admin", admin);
+
+  app.get("/api/assets/:orgId/:file", async (c) => {
+    const { data, mime } = await assets.readAsset(ctx, c.req.param("orgId"), c.req.param("file"));
+    return c.body(new Uint8Array(data), 200, { "Content-Type": mime, "Cache-Control": "public, max-age=31536000, immutable", "Content-Security-Policy": "default-src 'none'" });
+  });
 
   app.get("/api/uploads/:orgId/:name", async (c) => {
     const { data, mime } = await readUpload(ctx, c.req.param("orgId"), c.req.param("name"));

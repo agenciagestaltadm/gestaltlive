@@ -27,6 +27,8 @@ export const RT = {
   scoreUpdated: "score:updated",
   /** Contagem de respostas da pergunta em foco (não revela a distribuição). */
   answersCount: "question:answers_count",
+  /** Modo apresentador: item atual, sobreposição (tela preta/pausa) e versão do estado. */
+  presenterChanged: "presentation:item",
   /** Pede ao cliente que recarregue o snapshot completo (ex.: sessão reconfigurada). */
   resync: "state:resync",
 } as const;
@@ -234,6 +236,8 @@ export interface ParticipantStateDTO {
 export interface ScreenStateDTO {
   session: PublicSessionDTO;
   presentation: PresentationDTO;
+  /** Modo apresentador ativo (slides, tela personalizada, tela preta/pausa, pré-carregamento). */
+  presenter: import("./presentations").ScreenPresenterDTO | null;
   question: PublicQuestionDTO | null;
   results: ResultsDTO | null;
   leaderboard: LeaderboardDTO | null;

@@ -52,7 +52,7 @@ export const RESULTS_MODE_LABELS: Record<ResultsMode, string> = {
   MANUAL: "Resultado após comando do palestrante",
 };
 
-export const SCREENS = ["BOAS_VINDAS", "PERGUNTA", "RESULTADO", "RANKING", "SATISFACAO", "PREMIACAO", "ENCERRAMENTO"] as const;
+export const SCREENS = ["BOAS_VINDAS", "PERGUNTA", "RESULTADO", "RANKING", "SATISFACAO", "PREMIACAO", "ENCERRAMENTO", "SLIDE", "TELA_PERSONALIZADA"] as const;
 export type PresentationScreen = (typeof SCREENS)[number];
 export const SCREEN_LABELS: Record<PresentationScreen, string> = {
   BOAS_VINDAS: "Boas-vindas",
@@ -62,6 +62,8 @@ export const SCREEN_LABELS: Record<PresentationScreen, string> = {
   SATISFACAO: "Satisfação",
   PREMIACAO: "Premiação",
   ENCERRAMENTO: "Encerramento",
+  SLIDE: "Slide da apresentação",
+  TELA_PERSONALIZADA: "Tela personalizada",
 };
 
 /* -------------------------------------------------------------- util */
@@ -330,6 +332,8 @@ export type PrizeInput = z.infer<typeof prizeInputSchema>;
 export const sessionInputSchema = z.object({
   name: shortText(160, "Informe o nome da turma/sessão"),
   scheduledAt: z.iso.datetime({ offset: true }).nullable().optional().transform((v) => v ?? null),
+  /** Apresentação usada no modo apresentador (opcional; indefinido mantém a atual). */
+  presentationId: z.uuid().nullable().optional(),
 });
 
 /* -------------------------------------------------------------- importação/exportação */

@@ -35,6 +35,8 @@ export default function AoVivoPage() {
   if (!state) return null;
   const s = state.session;
   const q = state.activeQuestion;
+  // telão exibindo slides ou tela personalizada do modo apresentador
+  const following = state.presentation.screen === "SLIDE" || state.presentation.screen === "TELA_PERSONALIZADA";
 
   if (s.status === "ENCERRADA" || s.status === "CANCELADA") {
     return (
@@ -85,8 +87,14 @@ export default function AoVivoPage() {
           <div className="mx-auto grid size-16 animate-pulse-ring place-items-center rounded-full bg-brand/15">
             <Hourglass className="size-8 text-brand" />
           </div>
-          <h2 className="mt-4 text-xl font-black">{s.status === "AGUARDANDO" ? "Você está dentro! O treinamento vai começar." : "Aguardando a próxima pergunta"}</h2>
-          <p className="mt-2 text-white/70">Fique de olho: as perguntas aparecem aqui automaticamente, sem precisar atualizar a página.</p>
+          <h2 className="mt-4 text-xl font-black">
+            {following ? "Acompanhe a apresentação" : s.status === "AGUARDANDO" ? "Você está dentro! O treinamento vai começar." : "Aguardando a próxima pergunta"}
+          </h2>
+          <p className="mt-2 text-white/70">
+            {following
+              ? "O conteúdo está no telão. Quando houver uma pergunta, ela aparece aqui automaticamente."
+              : "Fique de olho: as perguntas aparecem aqui automaticamente, sem precisar atualizar a página."}
+          </p>
           {s.status === "AGUARDANDO" && s.event.startsAt && <StartCountdown startsAt={s.event.startsAt} />}
           {s.event.welcomeMessage && s.status === "AGUARDANDO" && <p className="mt-4 rounded-xl bg-white/5 p-3 text-sm text-white/80">{s.event.welcomeMessage}</p>}
         </div>

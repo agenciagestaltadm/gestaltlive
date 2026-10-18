@@ -145,7 +145,13 @@ export function ParticipantProvider({ code, children }: { code: string; children
           if (me.score > s.me.score && soundOn) playSound("points");
           return { ...s, me };
         }),
-      [RT.presentationChanged]: (p: PresentationDTO) => patch((s) => ({ ...s, presentation: p })),
+      [RT.presentationChanged]: (p: PresentationDTO) =>
+        patch((s) => {
+          // telão foi para um slide/tela sem pergunta: o celular deixa de mostrar a pergunta já encerrada,
+          // mas uma pergunta ABERTA continua disponível (item no telão ≠ pergunta aberta)
+          const keep = p.sessionQuestionId !== null || s.activeQuestion?.state === "ABERTA";
+          return keep ? { ...s, presentation: p } : { ...s, presentation: p, activeQuestion: null, myAnswer: null, results: null };
+        }),
       [RT.prizesRevealed]: (d: { podium: PodiumDTO }) => patch((s) => ({ ...s, podium: d.podium })),
       [RT.answerAccepted]: (a: { sessionQuestionId: string; optionIds: string[]; value: number | null; revision: number }) =>
         patch((s) =>

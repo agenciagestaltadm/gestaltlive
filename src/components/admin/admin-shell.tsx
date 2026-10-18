@@ -12,6 +12,7 @@ import {
   LayoutTemplate,
   Settings,
   Building2,
+  Presentation,
   LogOut,
   Menu as MenuIcon,
   X,
@@ -27,6 +28,7 @@ import { cn } from "@/lib/utils";
 const NAV: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; perm?: Permission; superadmin?: boolean }[] = [
   { href: "/admin", label: "Painel", icon: LayoutDashboard },
   { href: "/admin/eventos", label: "Eventos", icon: CalendarDays, perm: "event.read" },
+  { href: "/admin/apresentacoes", label: "Apresentações", icon: Presentation, perm: "event.read" },
   { href: "/admin/sessoes", label: "Sessões", icon: Radio, perm: "session.control" },
   { href: "/admin/participantes", label: "Participantes", icon: Users, perm: "participants.read" },
   { href: "/admin/relatorios", label: "Relatórios", icon: BarChart3, perm: "reports.read" },

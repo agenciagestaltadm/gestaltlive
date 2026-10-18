@@ -250,7 +250,7 @@ export class Realtime {
     const control = await computeResults(db, sq, { includeCorrect: true });
     this.broadcast(sessionId, RT.resultsUpdated, control, ["control"]);
     const counts = { sessionQuestionId: sq.id, answered: control.totals.respondents, registered: control.totals.participants };
-    this.broadcast(sessionId, RT.answersCount, counts, ["participants", "screen"]);
+    this.broadcast(sessionId, RT.answersCount, counts, ["participants", "screen", "control"]);
     if (resultsPublic(sq) && this.due(`rp:${sqId}`, INTERVALS.resultsPublic)) {
       this.broadcast(sessionId, RT.resultsUpdated, stripForPublic(control), ["participants", "screen"]);
     } else if (resultsPublic(sq)) {

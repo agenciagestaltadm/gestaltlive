@@ -22,6 +22,7 @@ import {
   primaryKey,
   bigint,
   doublePrecision,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 const id = () => uuid("id").primaryKey().defaultRandom();
@@ -69,7 +70,24 @@ export const presentationScreen = pgEnum("presentation_screen", [
   "SATISFACAO",
   "PREMIACAO",
   "ENCERRAMENTO",
+  // Gerenciador de Apresentações
+  "SLIDE",
+  "TELA_PERSONALIZADA",
 ]);
+export const presentationItemType = pgEnum("presentation_item_type", [
+  "IMAGE_SLIDE",
+  "QUESTION",
+  "POLL",
+  "QUIZ",
+  "CHART",
+  "LEADERBOARD",
+  "SATISFACTION",
+  "QR_CODE",
+  "AWARDS",
+  "CUSTOM_SCREEN",
+]);
+export const presenterStatus = pgEnum("presenter_status", ["PRONTA", "APRESENTANDO", "ENCERRADA"]);
+export const screenOverride = pgEnum("screen_override", ["NENHUM", "TELA_PRETA", "PAUSA"]);
 export const snapshotKind = pgEnum("snapshot_kind", ["PUBLICACAO", "CONGELADO", "FINAL"]);
 export const awardStatus = pgEnum("award_status", ["PENDENTE", "ENTREGUE", "REVOGADO"]);
 export const customFieldType = pgEnum("custom_field_type", ["TEXTO", "TEXTO_LONGO", "SELECAO", "NUMERO", "EMAIL", "TELEFONE"]);
@@ -278,6 +296,8 @@ export const eventSessions = pgTable(
     screenTokenNonce: text("screen_token_nonce").notNull(),
     /** Snapshot do cadastro/configurações no momento da criação (pode ser atualizado antes de iniciar). */
     registration: jsonb("registration").notNull(),
+    /** Apresentação usada no modo apresentador (opcional). */
+    presentationId: uuid("presentation_id").references((): AnyPgColumn => presentations.id, { onDelete: "set null" }),
     settings: jsonb("settings").notNull(),
     createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: createdAt(),
@@ -298,6 +318,8 @@ export const sessionQuestions = pgTable(
     state: sessionQuestionState("state").notNull().default("PRONTA"),
     resultsMode: resultsMode("results_mode").notNull(),
     timeLimitMs: integer("time_limit_ms"),
+    /** Fechamento automático por pergunta (nulo = segue a configuração da sessão). */
+    autoClose: boolean("auto_close"),
     /** Cronômetro autoritativo: tempo acumulado + início do trecho em execução. */
     timerAccumulatedMs: integer("timer_accumulated_ms").notNull().default(0),
     timerRunningSince: ts("timer_running_since"),
@@ -677,3 +699,111 @@ export const integrationWebhooks = pgTable("integration_webhooks", {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
+
+/* ------------------------------------------------------- Gerenciador de Apresentações */
+/**
+ * Arquivos de slides (JPG/PNG). O binário fica em disco (UPLOAD_DIR), nunca no banco.
+ * O mesmo conteúdo (SHA-256) é armazenado uma única vez por organização.
+ */
+export const presentationAssets = pgTable(
+  "presentation_assets",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    sha256: text("sha256").notNull(),
+    originalName: text("original_name").notNull(),
+    mime: text("mime").notNull(),
+    ext: text("ext").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    bytes: integer("bytes").notNull(),
+    folder: text("folder"),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("presentation_assets_org_sha_uq").on(t.orgId, t.sha256), index("presentation_assets_org_idx").on(t.orgId, t.createdAt)],
+);
+
+export const presentations = pgTable(
+  "presentations",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    /** Evento vinculado (necessário para itens de pergunta). */
+    eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    /** shared/presentations presentationSettingsSchema */
+    settings: jsonb("settings").notNull().default({}),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("presentations_org_idx").on(t.orgId), index("presentations_event_idx").on(t.eventId)],
+);
+
+export const presentationItems = pgTable(
+  "presentation_items",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    presentationId: uuid("presentation_id").notNull().references(() => presentations.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    type: presentationItemType("type").notNull(),
+    title: text("title"),
+    hidden: boolean("hidden").notNull().default(false),
+    /** Transição específica (nula = padrão da apresentação). */
+    transition: text("transition"),
+    /** shared/presentations itemSettingsSchema */
+    settings: jsonb("settings").notNull().default({}),
+    assetId: uuid("asset_id").references(() => presentationAssets.id, { onDelete: "restrict" }),
+    /** Pergunta existente referenciada (perguntas, quizzes, enquetes e gráficos). */
+    questionId: uuid("question_id").references(() => questions.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("presentation_items_pres_idx").on(t.presentationId, t.position), index("presentation_items_asset_idx").on(t.assetId)],
+);
+
+/** Notas privadas do palestrante: tabela separada, lida apenas pela rota autenticada do apresentador. */
+export const presentationSpeakerNotes = pgTable("presentation_speaker_notes", {
+  itemId: uuid("item_id")
+    .primaryKey()
+    .references(() => presentationItems.id, { onDelete: "cascade" }),
+  orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  notes: text("notes").notNull(),
+  updatedAt: updatedAt(),
+});
+
+/** Estado ao vivo da apresentação numa sessão (item atual ≠ pergunta aberta). */
+export const presentationSessionStates = pgTable("presentation_session_states", {
+  sessionId: uuid("session_id")
+    .primaryKey()
+    .references(() => eventSessions.id, { onDelete: "cascade" }),
+  orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  presentationId: uuid("presentation_id").notNull().references(() => presentations.id, { onDelete: "cascade" }),
+  currentItemId: uuid("current_item_id").references(() => presentationItems.id, { onDelete: "set null" }),
+  currentIndex: integer("current_index").notNull().default(0),
+  status: presenterStatus("status").notNull().default("PRONTA"),
+  override: screenOverride("override").notNull().default("NENHUM"),
+  itemEnteredAt: ts("item_entered_at"),
+  startedAt: ts("started_at"),
+  version: integer("version").notNull().default(1),
+  updatedAt: updatedAt(),
+});
+
+export const presentationStateHistory = pgTable(
+  "presentation_state_history",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id").notNull().references(() => eventSessions.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    itemId: uuid("item_id"),
+    index: integer("index"),
+    version: integer("version").notNull(),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("presentation_history_session_idx").on(t.sessionId, t.createdAt)],
+);

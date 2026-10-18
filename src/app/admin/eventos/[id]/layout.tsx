@@ -14,12 +14,13 @@ import { EventLogo } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Badge, Dialog, Field, Input, Menu, MenuContent, MenuItem, MenuTrigger, Skeleton, Textarea } from "@/components/ui/primitives";
 
-const TABS = [
+const TABS: { seg: string; label: string; href?: (eventId: string) => string }[] = [
   { seg: "", label: "Visão geral" },
   { seg: "/perguntas", label: "Perguntas" },
   { seg: "/cadastro", label: "Cadastro" },
   { seg: "/premios", label: "Prêmios" },
   { seg: "/sessoes", label: "Sessões" },
+  { seg: "/apresentacoes", label: "Apresentações", href: (eventId) => `/admin/apresentacoes?eventId=${eventId}` },
 ];
 
 function SaveTemplateDialog({ event, open, onOpenChange }: { event: EventDetail; open: boolean; onOpenChange: (v: boolean) => void }) {
@@ -177,8 +178,8 @@ export default function EventLayout({ children }: { children: React.ReactNode })
           <nav aria-label="Seções do evento" className="-mx-4 mb-6 overflow-x-auto border-b border-border px-4 lg:mx-0 lg:px-0">
             <ul className="flex min-w-max gap-1">
               {TABS.map((t) => {
-                const href = `${base}${t.seg}`;
-                const active = t.seg === "" ? path === base : path.startsWith(href);
+                const href = t.href ? t.href(id) : `${base}${t.seg}`;
+                const active = t.href ? false : t.seg === "" ? path === base : path.startsWith(href);
                 return (
                   <li key={t.seg}>
                     <Link

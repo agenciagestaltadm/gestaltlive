@@ -31,6 +31,7 @@
 | `domains/leaderboard.ts` | Ranking, desempate, congelamento, snapshots, resultado final, pódio, desclassificação |
 | `domains/satisfaction.ts` | Termômetro (voto atual + histórico), agregados e evolução |
 | `domains/results.ts` | Agregação por pergunta (respondentes × seleções × inscritos), linha do tempo, cruzamentos |
+| `domains/assets.ts` · `presentations.ts` · `presenter.ts` · `presenter-view.ts` | Gerenciador de Apresentações: biblioteca de slides, linha do tempo, modo apresentador (orquestra live.ts) — ver [APRESENTACOES.md](APRESENTACOES.md) |
 | `domains/live.ts` | Máquina de estados da sessão/pergunta, cronômetro, telão, ranking, fechamento automático |
 | `domains/views.ts` | Snapshots de estado para participante, telão e painel |
 | `domains/reports.ts` / `crm.ts` | Relatórios, comparativos, exportações, CRM e LGPD |

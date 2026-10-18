@@ -19,6 +19,8 @@
 - **Editor de perguntas:** alternativas reordenadas por botões ↑↓ (arrastar e soltar apenas na lista de perguntas).
 - **Painel inicial** de usuários sem `participants.read` mostra participações somadas (não pessoas únicas).
 
+- **Apresentações:** apenas JPG/PNG (sem PDF/vídeo/GIF animado); arquivos em disco local (usar S3 ou volume compartilhado com várias instâncias); perguntas precisam ser do evento vinculado (reutilizar via "Duplicar para outro evento"); ensaio é local ao navegador.
+
 ## Qualidade
 - **Lint:** 0 erros. As regras do React Compiler (`react-hooks/set-state-in-effect`, `refs`, `purity`, `use-memo`) estão como aviso (41 ocorrências de padrões válidos sem o compilador: sincronização de estado em efeitos e "latest ref"). Refatorar se o React Compiler for adotado.
 - **E2E** apenas em Chromium (desktop, Pixel 7, iPhone 13 e iPad Mini emulados).

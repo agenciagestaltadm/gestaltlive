@@ -13,6 +13,7 @@ import { Realtime } from "./realtime/realtime";
 import { attachGateway } from "./realtime/gateway";
 import { createApp } from "./app";
 import { closeExpiredQuestions } from "./domains/live";
+import { advanceTimedItems } from "./domains/presenter";
 import { runRetention } from "./domains/retention";
 import { processOutbox } from "./domains/integrations";
 import { log } from "./lib/logger";
@@ -164,6 +165,7 @@ export async function startHttpServer(runtime: Runtime, opts: HttpServerOptions)
     ticking = true;
     try {
       await closeExpiredQuestions(ctx);
+      await advanceTimedItems(ctx);
     } catch (err) {
       log.error("falha no agendador", { err });
     } finally {

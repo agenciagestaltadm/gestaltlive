@@ -570,3 +570,16 @@ export async function copyEventQuestions(tx: Tx, fromEventId: string, toEventId:
   }
   return idMap;
 }
+
+/** Copia uma pergunta (com alternativas) para outro evento, ao final da lista. Usado ao reutilizar apresentações. */
+export async function copyQuestionToEvent(tx: Tx, questionId: string, targetEventId: string, orgId: string) {
+  const [q] = await tx.select().from(questions).where(eq(questions.id, questionId));
+  if (!q || q.orgId !== orgId) throw notFound("Pergunta não encontrada.");
+  const opts = (await optionsOf(tx, [questionId])).get(questionId) ?? [];
+  const input = rowToInput(q, opts);
+  input.options = input.options.map((o) => ({ ...o, id: undefined }));
+  input.chart = { ...input.chart, crossQuestionId: null };
+  const pos = await nextPosition(tx, targetEventId, orgId);
+  const { question } = await insertQuestion(tx, orgId, targetEventId, input, pos, q.status);
+  return question.id;
+}

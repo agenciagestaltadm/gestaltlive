@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { BarChart3, CheckCircle2, Gift, Link2, MonitorPlay, MoreVertical, Pencil, Plus, QrCode, Radio, Trash2, Tv } from "lucide-react";
+import { BarChart3, CheckCircle2, Gift, Link2, MonitorPlay, MoreVertical, Pencil, Plus, Presentation, QrCode, Radio, Trash2, Tv } from "lucide-react";
 import { sessionInputSchema } from "@shared/schemas";
 import { admin, ApiError } from "@/lib/api";
 import { useAction, useApi } from "@/lib/hooks";
@@ -13,7 +13,8 @@ import { LoadError } from "@/components/admin/load-error";
 import { SessionStatusBadge } from "@/components/admin/session-status-badge";
 import { copyText, isoToLocalInput, localInputToIso, type AwardRow, type EventSessionRow, type SessionAdminDetail } from "@/components/admin/event-types";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, Dialog, EmptyState, Field, Input, Menu, MenuContent, MenuItem, MenuTrigger, Skeleton, Spinner, Textarea } from "@/components/ui/primitives";
+import { Badge, Card, Dialog, EmptyState, Field, Input, Menu, MenuContent, MenuItem, MenuTrigger, NativeSelect, Skeleton, Spinner, Textarea } from "@/components/ui/primitives";
+import type { PresentationListRow } from "@/components/presenter/types";
 import { toast } from "@/components/ui/toast";
 
 /* ------------------------------------------------------------------ criar/editar */
@@ -35,16 +36,45 @@ function SessionFormDialog({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const editable = !session || session.status === "RASCUNHO" || session.status === "AGENDADA";
+  // apresentação do modo apresentador (a listagem de sessões não traz o vínculo: lido do detalhe da sessão)
+  const { orgId } = useAdmin();
+  const [presentationId, setPresentationId] = useState("");
+  const [presentationKnown, setPresentationKnown] = useState(false);
+  const presentations = useApi(open ? () => admin.get<PresentationListRow[]>(`/presentations?orgId=${orgId}`) : null, [open, orgId]);
+  const ofEvent = (presentations.data ?? []).filter((p) => p.eventId === eventId);
+  const withoutEvent = (presentations.data ?? []).filter((p) => p.eventId === null);
   useEffect(() => {
     if (open) {
       setName(session?.name ?? "");
       setWhen(isoToLocalInput(session?.scheduledAt));
       setErrors({});
+      setPresentationId("");
+      setPresentationKnown(!session);
     }
+  }, [open, session]);
+  useEffect(() => {
+    if (!open || !session) return;
+    let alive = true;
+    admin
+      .get<SessionAdminDetail & { presentationId?: string | null }>(`/sessions/${session.id}`)
+      .then((d) => {
+        if (!alive) return;
+        setPresentationId(d.presentationId ?? "");
+        setPresentationKnown(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
   }, [open, session]);
 
   const submit = async () => {
-    const body = { name, scheduledAt: localInputToIso(when) };
+    const body = {
+      name,
+      scheduledAt: localInputToIso(when),
+      // sem o detalhe carregado, o campo é omitido e o vínculo atual é mantido
+      ...(presentationKnown && { presentationId: presentationId || null }),
+    };
     const parsed = sessionInputSchema.safeParse(body);
     if (!parsed.success) {
       const errs: Record<string, string> = {};
@@ -99,6 +129,34 @@ function SessionFormDialog({
           hint={editable ? "Com data, a sessão fica como Agendada; sem data, como Rascunho." : "A sessão já foi iniciada; o status não muda."}
         >
           <Input id="ss-when" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
+        </Field>
+        <Field
+          label="Apresentação (opcional)"
+          htmlFor="ss-presentation"
+          error={errors.presentationId}
+          hint={presentations.error ? "Não foi possível carregar as apresentações." : "Slides e sequência usados no Modo apresentador (apresentações deste evento ou sem evento)."}
+        >
+          <NativeSelect id="ss-presentation" value={presentationId} onChange={(e) => setPresentationId(e.target.value)} disabled={!presentationKnown || presentations.loading}>
+            <option value="">{!presentationKnown || presentations.loading ? "Carregando…" : "Nenhuma"}</option>
+            {ofEvent.length > 0 && (
+              <optgroup label="Deste evento">
+                {ofEvent.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.title}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {withoutEvent.length > 0 && (
+              <optgroup label="Sem evento">
+                {withoutEvent.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.title}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </NativeSelect>
         </Field>
         <button type="submit" className="hidden" aria-hidden tabIndex={-1} />
       </form>
@@ -360,6 +418,13 @@ export default function EventSessionsPage() {
                     <Button size="sm" asChild>
                       <Link href={`/admin/sessoes/${s.id}/controle`}>
                         <MonitorPlay /> Abrir controle
+                      </Link>
+                    </Button>
+                  )}
+                  {canControl && s.status !== "ENCERRADA" && s.status !== "CANCELADA" && (
+                    <Button size="sm" variant="outline" asChild>
+                      <Link href={`/admin/sessoes/${s.id}/apresentador`}>
+                        <Presentation /> Apresentar
                       </Link>
                     </Button>
                   )}
