@@ -75,3 +75,16 @@ Rode no notebook do palestrante com `DATABASE_URL=pglite:./.data/db` (ou Postgre
 - [ ] Backup do banco agendado
 - [ ] Teste de carga contra o banco de produção (`docs/LOAD_TEST.md`)
 - [ ] Ensaio com aparelhos reais na rede do local do evento
+
+
+## Supabase (PostgreSQL gerenciado)
+1. No painel do projeto, clique em **Connect** e copie a URI do **Session pooler** (porta **5432**). O *Direct connection* é só IPv6 e o *Transaction pooler* (6543) não é indicado para este servidor, que mantém conexões abertas.
+2. Coloque em `DATABASE_URL` com a senha do banco. Codifique caracteres especiais da senha (`@` → `%40`, `#` → `%23`).
+3. Defina `DB_POOL_MAX=10` (ou menos que o limite de conexões do plano).
+4. Rode `npm run db:migrate` e `npm run db:seed` (ou apenas inicie o servidor: ele faz os dois).
+
+Detalhes:
+- SSL é ligado automaticamente para hosts remotos (`DB_SSL=verify` valida o certificado se você configurar a CA do Supabase).
+- Ao conectar no Supabase, o servidor liga **RLS sem políticas** em todas as tabelas do schema `public`. Assim a API REST automática do Supabase (chave `anon`, que é pública) não lê nem grava nada; o Gestalt Live conecta como dono das tabelas e não é afetado.
+- As chaves `anon` e `service_role` não são usadas pela aplicação. Nunca coloque a `service_role` em código do navegador.
+- Imagens (logos, slides) continuam em `UPLOAD_DIR` no disco do servidor, não no Supabase Storage.

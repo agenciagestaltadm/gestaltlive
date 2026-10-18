@@ -33,6 +33,40 @@ export function rowsOf<T>(result: unknown): T[] {
 
 export const MIGRATIONS_FOLDER = path.resolve(process.cwd(), "server/db/migrations");
 
+/**
+ * SSL do PostgreSQL. DB_SSL: "disable" | "require" (criptografa sem validar o certificado) | "verify".
+ * Sem DB_SSL: "require" para provedores gerenciados (Supabase, Neon, RDS...) e desligado para localhost.
+ * O `sslmode` da URL é removido porque o node-postgres o trataria como "verify" e ignoraria esta configuração.
+ */
+export function sslConfig(url: string): { connectionString: string; ssl: false | { rejectUnauthorized: boolean } } {
+  const u = new URL(url);
+  const fromUrl = u.searchParams.get("sslmode");
+  u.searchParams.delete("sslmode");
+  const local = ["localhost", "127.0.0.1", "::1", "db", "postgres"].includes(u.hostname);
+  const mode = process.env.DB_SSL ?? (fromUrl === "disable" ? "disable" : fromUrl === "verify-full" || fromUrl === "verify-ca" ? "verify" : fromUrl || !local ? "require" : "disable");
+  const ssl = mode === "disable" ? false : { rejectUnauthorized: mode === "verify" };
+  return { connectionString: u.toString(), ssl };
+}
+
+const isSupabase = (url: string) => /\.supabase\.(co|com)$/.test(new URL(url).hostname);
+
+/**
+ * No Supabase, as tabelas do schema `public` ficam expostas pela API REST automática (chave `anon`, que é pública).
+ * O Gestalt Live não usa essa API — o servidor conecta direto como dono das tabelas, que ignora RLS —, então
+ * ligamos RLS sem políticas em todas as tabelas: a API externa não lê nem grava nada e a aplicação segue igual.
+ */
+async function lockPublicSchema(db: DB) {
+  await db.execute(sql`
+    do $$
+    declare t record;
+    begin
+      for t in select tablename from pg_tables where schemaname = 'public' and not rowsecurity loop
+        execute format('alter table public.%I enable row level security', t.tablename);
+      end loop;
+    end $$;
+  `);
+}
+
 export async function createDatabase(url: string): Promise<Database> {
   if (url.startsWith("pglite:")) {
     const { PGlite } = await import("@electric-sql/pglite");
@@ -55,14 +89,17 @@ export async function createDatabase(url: string): Promise<Database> {
 
   const pg = await import("pg");
   const { drizzle } = await import("drizzle-orm/node-postgres");
+  const { connectionString, ssl } = sslConfig(url);
   const pool = new pg.default.Pool({
-    connectionString: url,
+    connectionString,
+    ssl,
     max: Number(process.env.DB_POOL_MAX ?? 20),
     idleTimeoutMillis: 30_000,
   });
   const db = drizzle(pool, { schema }) as unknown as DB;
   const { migrate } = await import("drizzle-orm/node-postgres/migrator");
   await migrate(db as never, { migrationsFolder: MIGRATIONS_FOLDER });
+  if (isSupabase(url)) await lockPublicSchema(db);
   return { db, kind: "postgres", close: () => pool.end() };
 }
 
