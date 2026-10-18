@@ -69,7 +69,7 @@ describe("entrega em tempo real", () => {
     const p = await ParticipantClient.join(env.rt, s.code, 1);
     for (let i = 0; i < 3; i++) track(await connectSocket(srv.port, { role: "participant", code: s.code, token: p.token }));
     await sleep(100);
-    expect(env.rt.ctx.rt.connectedCount(s.sessionId)).toBe(1);
+    expect(await env.rt.ctx.rt.connectedCount(s.sessionId)).toBe(1);
   });
 
   it("participante desconecta, retorna e recupera o estado sem refazer o cadastro (cenário 12)", async () => {
@@ -83,7 +83,7 @@ describe("entrega em tempo real", () => {
     await p.answer(q4.sessionQuestionId, [opt]);
     sock.disconnect();
     await sleep(100);
-    expect(env.rt.ctx.rt.connectedCount(s.sessionId)).toBe(0);
+    expect(await env.rt.ctx.rt.connectedCount(s.sessionId)).toBe(0);
     // reconecta com o mesmo token persistido no aparelho
     track(await connectSocket(srv.port, { role: "participant", code: s.code, token: p.token }));
     const st = await p.state();

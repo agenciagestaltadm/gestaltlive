@@ -2,8 +2,6 @@
  * Upload de imagens (logos, perguntas, alternativas, prêmios).
  * Validação pelo conteúdo (assinatura binária), não pela extensão. SVG não é aceito (risco de XSS).
  */
-import fs from "node:fs/promises";
-import path from "node:path";
 import crypto from "node:crypto";
 import type { AppContext } from "../context";
 import { badRequest, notFound } from "../lib/errors";
@@ -25,23 +23,18 @@ export async function saveUpload(ctx: AppContext, orgId: string, file: File) {
   const type = TYPES.find((t) => t.test(buf));
   if (!type) throw badRequest("Formato não suportado. Envie PNG, JPG, GIF ou WEBP.");
   const name = `${crypto.randomBytes(16).toString("hex")}.${type.ext}`;
-  const dir = path.join(ctx.config.uploadDir, orgId);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, name), buf);
+  await ctx.storage.put(`${orgId}/${name}`, buf, type.mime);
   return { url: `/api/uploads/${orgId}/${name}`, size: buf.length, mime: type.mime };
 }
 
-export async function readUpload(ctx: AppContext, orgId: string, name: string) {
+/** Lê uma imagem enviada. No Supabase Storage devolve a URL pública (a rota redireciona). */
+export async function readUpload(ctx: AppContext, orgId: string, name: string): Promise<{ redirect: string } | { data: Buffer; mime: string }> {
   if (!/^[0-9a-f-]{36}$/i.test(orgId) || !NAME_RE.test(name)) throw notFound();
-  const file = path.join(ctx.config.uploadDir, orgId, name);
-  // garante que o caminho resolvido continua dentro do diretório de uploads
-  if (!path.resolve(file).startsWith(path.resolve(ctx.config.uploadDir))) throw notFound();
-  try {
-    const data = await fs.readFile(file);
-    const ext = name.split(".").pop()!;
-    const mime = TYPES.find((t) => t.ext === ext)!.mime;
-    return { data, mime };
-  } catch {
-    throw notFound();
-  }
+  const key = `${orgId}/${name}`;
+  const direct = ctx.storage.publicUrl(key);
+  if (direct) return { redirect: direct };
+  const data = await ctx.storage.get(key);
+  if (!data) throw notFound();
+  const ext = name.split(".").pop()!;
+  return { data, mime: TYPES.find((t) => t.ext === ext)!.mime };
 }

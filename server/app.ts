@@ -17,7 +17,11 @@ import { eventSessions } from "./db/schema";
 import { body, bearer, clientIp, errorResponse, q, requestOrigin, requireActor, requireOrgId, type Env } from "./http/helpers";
 import { changePassword, login, logout, SESSION_COOKIE, SESSION_TTL_MS } from "./auth/auth";
 import { authorize, can, permissionsFor } from "./auth/permissions";
-import { badRequest, notFound, tooMany } from "./lib/errors";
+import { AppError, badRequest, notFound, tooMany } from "./lib/errors";
+import { authorizeRealtime } from "./realtime/auth";
+import { tickSession } from "./realtime/tick";
+import { runRetention } from "./domains/retention";
+import { processOutbox } from "./domains/integrations";
 import { log } from "./lib/logger";
 import * as orgs from "./domains/orgs";
 import * as eventsSvc from "./domains/events";
@@ -51,7 +55,12 @@ export function createApp(ctx: AppContext) {
 
   app.use("*", async (c, next) => {
     const started = Date.now();
-    await next();
+    try {
+      await next();
+    } finally {
+      // modo serverless: publica no Supabase Realtime os eventos gerados por esta requisição antes de responder
+      await ctx.rt.drain();
+    }
     c.header("Cache-Control", c.res.headers.get("Cache-Control") ?? "no-store");
     c.header("X-Content-Type-Options", "nosniff");
     const ms = Date.now() - started;
@@ -73,6 +82,53 @@ export function createApp(ctx: AppContext) {
   app.use("/api/*", (c, next) => (c.req.method === "POST" && c.req.path === "/api/admin/assets" ? slideLimit(c, next) : tooLarge(c, next)));
 
   app.get("/api/health", (c) => c.json({ ok: true, time: new Date().toISOString() }));
+
+  /* ============================================================ tempo real (ticket, tick, sinal de vida) */
+  const rtIdentity = async (c: Context<Env>) => {
+    ctx.limits.join.enforce(`rt:${clientIp(c, ctx)}`);
+    const auth = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const id = await authorizeRealtime(ctx, auth ?? {}, getCookie(c, SESSION_COOKIE));
+    if (!id) throw new AppError(403, "NAO_AUTORIZADO", "Acesso ao tempo real negado.");
+    return id;
+  };
+  /** Informa ao cliente como se conectar: Socket.IO (servidor próprio) ou canais do Supabase Realtime. */
+  app.post("/api/realtime/ticket", async (c) => {
+    const id = await rtIdentity(c);
+    if (ctx.rt.mode !== "supabase") return c.json({ transport: "socket", serverNow: Date.now() });
+    return c.json({
+      transport: "supabase",
+      url: ctx.rt.supabase?.url ?? "",
+      anonKey: ctx.rt.supabase?.anonKey ?? "",
+      topics: ctx.rt.topicsFor(id),
+      tick: id.role !== "participant",
+      heartbeat: id.role === "participant",
+      serverNow: Date.now(),
+    });
+  });
+  app.post("/api/realtime/tick", async (c) => {
+    const id = await rtIdentity(c);
+    if (id.role === "participant") throw new AppError(403, "NAO_AUTORIZADO", "Apenas o telão e o painel executam o tick.");
+    const r = ctx.rt.mode === "supabase" ? await tickSession(ctx, id.sessionId) : { ran: false };
+    return c.json({ ...r, serverNow: Date.now() });
+  });
+  app.post("/api/realtime/heartbeat", async (c) => {
+    const id = await rtIdentity(c);
+    if (id.role === "participant" && id.spId) {
+      ctx.limits.participant.enforce(`hb:${id.spId}`);
+      if (ctx.rt.mode === "supabase") await ctx.rt.touch(id.spId);
+      else ctx.rt.heartbeat(id.spId);
+    }
+    return c.json({ ok: true, serverNow: Date.now() });
+  });
+
+  /** Manutenção diária (Vercel Cron): retenção LGPD e webhooks pendentes. Protegida por CRON_SECRET. */
+  app.get("/api/cron/maintenance", async (c) => {
+    const secret = process.env.CRON_SECRET;
+    if (!secret || c.req.header("authorization") !== `Bearer ${secret}`) throw new AppError(401, "NAO_AUTENTICADO", "Não autorizado.");
+    const retention = await runRetention(ctx);
+    await processOutbox(ctx);
+    return c.json({ ok: true, anonymized: retention.reduce((n, o) => n + o.anonymized, 0) });
+  });
 
   /* ============================================================ autenticação */
   app.post("/api/auth/login", async (c) => {
@@ -358,7 +414,7 @@ export function createApp(ctx: AppContext) {
       )
       .orderBy(desc(sessionParticipants.joinedAt))
       .limit(500);
-    const online = new Set(ctx.rt.connectedIds(s.id));
+    const online = new Set(await ctx.rt.connectedIds(s.id));
     // palestrantes veem apenas o nome; contatos ficam restritos a administradores
     return c.json(rows.map((r) => ({ ...r, email: canSeeContacts ? r.email : null, phone: canSeeContacts ? r.phone : null, online: online.has(r.id) })));
   });
@@ -498,6 +554,17 @@ export function createApp(ctx: AppContext) {
     const r = await assets.uploadAsset(ctx, c.get("actor"), orgId, file, folder);
     return c.json(r, r.reused ? 200 : 201);
   });
+  // envio direto ao Supabase Storage (Vercel): prepara a URL assinada e depois processa o arquivo recebido
+  admin.get("/assets/upload-config", (c) => c.json(assets.uploadConfig(ctx)));
+  admin.post("/assets/direct", async (c) => {
+    const input = await body(c, z.object({ name: z.string().trim().min(1).max(255), size: z.number().int().min(0), type: z.string().max(100) }));
+    return c.json(await assets.createDirectUpload(ctx, c.get("actor"), requireOrgId(c), input), 201);
+  });
+  admin.post("/assets/direct/complete", async (c) => {
+    const input = await body(c, z.object({ key: z.string().max(200), name: z.string().trim().min(1).max(255), folder: z.string().trim().max(80).nullable().optional() }));
+    const r = await assets.importDirectUpload(ctx, c.get("actor"), requireOrgId(c), { key: input.key, name: input.name, folder: input.folder ?? null });
+    return c.json(r, r.reused ? 200 : 201);
+  });
   admin.patch("/assets/:id", async (c) =>
     c.json(await assets.updateAsset(ctx, c.get("actor"), pid(c.req.param("id")), await body(c, z.object({ folder: z.string().max(80).nullable().optional(), originalName: z.string().min(1).max(200).optional() })))),
   );
@@ -548,19 +615,13 @@ export function createApp(ctx: AppContext) {
 
   app.route("/api/admin", admin);
 
-  app.get("/api/assets/:orgId/:file", async (c) => {
-    const { data, mime } = await assets.readAsset(ctx, c.req.param("orgId"), c.req.param("file"));
-    return c.body(new Uint8Array(data), 200, { "Content-Type": mime, "Cache-Control": "public, max-age=31536000, immutable", "Content-Security-Policy": "default-src 'none'" });
-  });
-
-  app.get("/api/uploads/:orgId/:name", async (c) => {
-    const { data, mime } = await readUpload(ctx, c.req.param("orgId"), c.req.param("name"));
-    return c.body(new Uint8Array(data), 200, {
-      "Content-Type": mime,
-      "Cache-Control": "public, max-age=31536000, immutable",
-      "Content-Security-Policy": "default-src 'none'",
-    });
-  });
+  // arquivos imutáveis: servidos do disco ou redirecionados para o Supabase Storage (cache na CDN da Vercel)
+  const serveFile = (c: Context<Env>, r: { redirect: string } | { data: Buffer; mime: string }) =>
+    "redirect" in r
+      ? c.body(null, 302, { Location: r.redirect, "Cache-Control": "public, max-age=86400, s-maxage=31536000, immutable" })
+      : c.body(new Uint8Array(r.data), 200, { "Content-Type": r.mime, "Cache-Control": "public, max-age=31536000, immutable", "Content-Security-Policy": "default-src 'none'" });
+  app.get("/api/assets/:orgId/:file", async (c) => serveFile(c, await assets.readAsset(ctx, c.req.param("orgId"), c.req.param("file"))));
+  app.get("/api/uploads/:orgId/:name", async (c) => serveFile(c, await readUpload(ctx, c.req.param("orgId"), c.req.param("name"))));
 
   /* ============================================================ público */
   const lookup = (c: Context<Env>) => {

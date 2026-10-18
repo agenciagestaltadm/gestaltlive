@@ -7,6 +7,7 @@ import crypto from "node:crypto";
 import type { DB } from "./db/client";
 import type { RateLimits } from "./lib/rate-limit";
 import type { Realtime } from "./realtime/realtime";
+import type { BlobStore } from "./lib/storage";
 
 export interface AppConfig {
   env: "development" | "production" | "test";
@@ -24,6 +25,7 @@ export interface AppContext {
   config: AppConfig;
   limits: RateLimits;
   rt: Realtime;
+  storage: BlobStore;
   now: () => Date;
 }
 
@@ -38,9 +40,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     env: nodeEnv,
     publicUrl: env.PUBLIC_URL ? env.PUBLIC_URL.replace(/\/+$/, "") : null,
     cookieSecure: env.COOKIE_SECURE === "true" || (nodeEnv === "production" && env.COOKIE_SECURE !== "false"),
-    uploadDir: path.resolve(process.cwd(), env.UPLOAD_DIR || "./uploads"),
+    uploadDir: path.resolve(/*turbopackIgnore: true*/ process.cwd(), env.UPLOAD_DIR || "./uploads"),
     appSecret,
-    trustProxy: env.TRUST_PROXY === "true",
+    // na Vercel o IP real do cliente vem em x-forwarded-for
+    trustProxy: env.TRUST_PROXY ? env.TRUST_PROXY === "true" : !!env.VERCEL,
     maxUploadBytes: Number(env.MAX_UPLOAD_BYTES ?? 3 * 1024 * 1024),
   };
 }

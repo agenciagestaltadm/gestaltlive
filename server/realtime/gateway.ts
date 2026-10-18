@@ -9,14 +9,10 @@
  * O cliente só pode emitir "hb" (heartbeat). Qualquer outro evento é ignorado.
  */
 import type { Server, Socket } from "socket.io";
-import { eq } from "drizzle-orm";
 import type { AppContext } from "../context";
-import { eventSessions } from "../db/schema";
-import { actorFromToken, SESSION_COOKIE } from "../auth/auth";
-import { can } from "../auth/permissions";
-import { participantFromToken } from "../domains/participants";
-import { sessionByCode, verifyScreenToken } from "../domains/sessions";
+import { SESSION_COOKIE } from "../auth/auth";
 import { log } from "../lib/logger";
+import { authorizeRealtime } from "./auth";
 import { personalRoom, room } from "./realtime";
 
 interface SocketData {
@@ -38,35 +34,12 @@ function parseCookies(header: string | undefined): Record<string, string> {
 
 export function attachGateway(io: Server, ctx: AppContext) {
   io.use(async (socket, next) => {
-    try {
-      const auth = (socket.handshake.auth ?? {}) as Record<string, unknown>;
-      const role = auth.role;
-      if (role === "participant") {
-        const { sp, session } = await participantFromToken(ctx.db, String(auth.code ?? ""), String(auth.token ?? ""));
-        (socket.data as SocketData) = { role, sessionId: session.id, spId: sp.id };
-        return next();
-      }
-      if (role === "screen") {
-        const s = await sessionByCode(ctx.db, String(auth.code ?? ""));
-        if (!s || !verifyScreenToken(ctx, s, String(auth.token ?? ""))) return next(new Error("NAO_AUTORIZADO"));
-        (socket.data as SocketData) = { role, sessionId: s.id };
-        return next();
-      }
-      if (role === "control") {
-        const token = parseCookies(socket.handshake.headers.cookie)[SESSION_COOKIE];
-        const actor = await actorFromToken(ctx, token);
-        if (!actor) return next(new Error("NAO_AUTENTICADO"));
-        const sessionId = String(auth.sessionId ?? "");
-        if (!/^[0-9a-f-]{36}$/i.test(sessionId)) return next(new Error("NAO_AUTORIZADO"));
-        const [s] = await ctx.db.select({ id: eventSessions.id, orgId: eventSessions.orgId }).from(eventSessions).where(eq(eventSessions.id, sessionId));
-        if (!s || !can(actor, s.orgId, "session.control")) return next(new Error("NAO_AUTORIZADO"));
-        (socket.data as SocketData) = { role, sessionId: s.id };
-        return next();
-      }
-      return next(new Error("NAO_AUTORIZADO"));
-    } catch {
-      return next(new Error("NAO_AUTORIZADO"));
-    }
+    const auth = (socket.handshake.auth ?? {}) as Record<string, unknown>;
+    const token = parseCookies(socket.handshake.headers.cookie)[SESSION_COOKIE];
+    const id = await authorizeRealtime(ctx, auth, auth.role === "control" ? token : undefined);
+    if (!id) return next(new Error(auth.role === "control" && !token ? "NAO_AUTENTICADO" : "NAO_AUTORIZADO"));
+    (socket.data as SocketData) = { role: id.role, sessionId: id.sessionId, spId: id.spId };
+    return next();
   });
 
   io.on("connection", (socket: Socket) => {

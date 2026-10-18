@@ -96,11 +96,10 @@ test("apresentação completa: upload em lote, linha do tempo, ensaio, apresenta
   await tv.goto(new URL(info.screenUrl).pathname + new URL(info.screenUrl).search);
 
   await page.goto(`/admin/sessoes/${s.id}/apresentador`);
-  await expect(page.getByText(/NOTA SECRETA/).first()).toBeVisible({ timeout: 20_000 }).catch(async () => {
-    // apresentação ainda não iniciada: inicia pelo botão
-    await page.getByRole("button", { name: /Iniciar apresentação/i }).click();
-    await expect(page.getByText(/NOTA SECRETA/).first()).toBeVisible();
-  });
+  // antes de iniciar, as notas do 1º item já aparecem para o palestrante preparar a abertura
+  await expect(page.getByText(/NOTA SECRETA/).first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("button", { name: /Iniciar apresentação/i }).click();
+  await expect.poll(async () => (await (await api.get(`/api/admin/sessions/${s.id}/presenter`)).json()).presenter.status).toBe("APRESENTANDO");
   // telão mostra a imagem do slide 1 (variante "tela") e nunca as notas
   await expect(tv.locator('img[src*="-tela.webp"]').first()).toBeVisible();
   await expect(tv.getByText(/NOTA SECRETA/)).toHaveCount(0);

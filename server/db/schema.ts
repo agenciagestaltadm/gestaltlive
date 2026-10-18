@@ -807,3 +807,18 @@ export const presentationStateHistory = pgTable(
   },
   (t) => [index("presentation_history_session_idx").on(t.sessionId, t.createdAt)],
 );
+
+/* ================================================================== tempo real sem processo residente */
+/**
+ * Coordenação do "tick" no modo serverless (Vercel + Supabase Realtime): telão e painel chamam o tick a cada
+ * segundo; a atualização condicional de `at` garante que só uma chamada por janela faça o trabalho
+ * (fechar perguntas pelo tempo, avançar slides, publicar resultados/ranking agregados).
+ * `sent` guarda a assinatura do último envio de cada tipo, para não repetir mensagens iguais.
+ */
+export const realtimeTicks = pgTable("realtime_ticks", {
+  sessionId: uuid("session_id")
+    .primaryKey()
+    .references(() => eventSessions.id, { onDelete: "cascade" }),
+  at: timestamp("at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  sent: jsonb("sent").$type<Record<string, string | number>>().notNull().default({}),
+});

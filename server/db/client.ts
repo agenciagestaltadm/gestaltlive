@@ -31,7 +31,7 @@ export function rowsOf<T>(result: unknown): T[] {
   return r?.rows ?? (Array.isArray(result) ? (result as T[]) : []);
 }
 
-export const MIGRATIONS_FOLDER = path.resolve(process.cwd(), "server/db/migrations");
+export const MIGRATIONS_FOLDER = path.resolve(/*turbopackIgnore: true*/ process.cwd(), "server/db/migrations");
 
 /**
  * SSL do PostgreSQL. DB_SSL: "disable" | "require" (criptografa sem validar o certificado) | "verify".
@@ -67,7 +67,8 @@ async function lockPublicSchema(db: DB) {
   `);
 }
 
-export async function createDatabase(url: string): Promise<Database> {
+export async function createDatabase(url: string, opts: { migrate?: boolean } = {}): Promise<Database> {
+  const runMigrations = opts.migrate ?? true;
   if (url.startsWith("pglite:")) {
     const { PGlite } = await import("@electric-sql/pglite");
     const { drizzle } = await import("drizzle-orm/pglite");
@@ -76,14 +77,14 @@ export async function createDatabase(url: string): Promise<Database> {
     if (target === "memory" || target === "") {
       client = new PGlite();
     } else {
-      const dir = path.resolve(process.cwd(), target);
+      const dir = path.resolve(/*turbopackIgnore: true*/ process.cwd(), target);
       fs.mkdirSync(dir, { recursive: true });
       client = new PGlite(dir);
     }
     await client.waitReady;
     const db = drizzle(client, { schema }) as unknown as DB;
     const { migrate } = await import("drizzle-orm/pglite/migrator");
-    await migrate(db as never, { migrationsFolder: MIGRATIONS_FOLDER });
+    if (runMigrations) await migrate(db as never, { migrationsFolder: MIGRATIONS_FOLDER });
     return { db, kind: "pglite", close: () => client.close() };
   }
 
@@ -93,13 +94,16 @@ export async function createDatabase(url: string): Promise<Database> {
   const pool = new pg.default.Pool({
     connectionString,
     ssl,
-    max: Number(process.env.DB_POOL_MAX ?? 20),
-    idleTimeoutMillis: 30_000,
+    max: Number(process.env.DB_POOL_MAX ?? (process.env.VERCEL ? 3 : 20)),
+    // funções serverless: devolve conexões ociosas rapidamente ao pooler
+    idleTimeoutMillis: process.env.VERCEL ? 5_000 : 30_000,
   });
   const db = drizzle(pool, { schema }) as unknown as DB;
-  const { migrate } = await import("drizzle-orm/node-postgres/migrator");
-  await migrate(db as never, { migrationsFolder: MIGRATIONS_FOLDER });
-  if (isSupabase(url)) await lockPublicSchema(db);
+  if (runMigrations) {
+    const { migrate } = await import("drizzle-orm/node-postgres/migrator");
+    await migrate(db as never, { migrationsFolder: MIGRATIONS_FOLDER });
+    if (isSupabase(url)) await lockPublicSchema(db);
+  }
   return { db, kind: "postgres", close: () => pool.end() };
 }
 

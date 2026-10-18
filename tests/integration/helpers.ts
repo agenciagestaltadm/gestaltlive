@@ -1,7 +1,7 @@
 /** Utilitários de teste: runtime com PGlite em memória, cliente HTTP admin/participante e relógio controlável. */
 import crypto from "node:crypto";
 import { io as ioClient, type Socket } from "socket.io-client";
-import { createRuntime, startHttpServer, type Runtime, type RunningServer } from "@server/runtime";
+import { createRuntime, startHttpServer, type Runtime, type RunningServer, type RuntimeOptions } from "@server/runtime";
 import { seedDatabase } from "@server/db/seed";
 
 export class Clock {
@@ -20,13 +20,14 @@ export interface TestEnv {
   close: () => Promise<void>;
 }
 
-export async function setup(opts: { realClock?: boolean } = {}): Promise<TestEnv> {
+export async function setup(opts: { realClock?: boolean; runtime?: Partial<RuntimeOptions> } = {}): Promise<TestEnv> {
   const clock = new Clock();
   const rt = await createRuntime({
     databaseUrl: "pglite:memory",
     now: opts.realClock ? undefined : clock.now,
     rateLimitMultiplier: 1000,
     config: { env: "test", publicUrl: "http://teste.local", appSecret: "segredo-de-teste" },
+    ...opts.runtime,
   });
   const seeded = await seedDatabase(rt.ctx, { superadminEmail: "admin@teste.local", superadminPassword: "SenhaForte123", demo: true });
   const admin = new AdminClient(rt);

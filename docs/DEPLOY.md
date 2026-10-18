@@ -1,7 +1,7 @@
 # Implantação
 
 ## Requisitos
-- Host com **conexões persistentes** (VM, contêiner, Docker, Fly.io, Railway, Render, AWS ECS/EC2…). **Não use hospedagem serverless** (Vercel Functions/Lambda): o gateway WebSocket e o agendador do cronômetro exigem um processo contínuo.
+- Host com **conexões persistentes** (VM, contêiner, Docker, Fly.io, Railway, Render, AWS ECS/EC2…) para o modo com Socket.IO e agendador residente — ou a **Vercel**, no modo serverless com Supabase Realtime e Storage ([VERCEL.md](VERCEL.md)).
 - PostgreSQL 15+ (recomendado 17).
 - Redis 7 — apenas se houver mais de uma instância.
 - HTTPS no proxy/balanceador (cookies `Secure`, câmeras abrindo o QR Code em páginas seguras).
@@ -76,6 +76,9 @@ Rode no notebook do palestrante com `DATABASE_URL=pglite:./.data/db` (ou Postgre
 - [ ] Teste de carga contra o banco de produção (`docs/LOAD_TEST.md`)
 - [ ] Ensaio com aparelhos reais na rede do local do evento
 
+
+## Vercel
+Veja [VERCEL.md](VERCEL.md): API como função, tempo real pelo Supabase Realtime e arquivos no Supabase Storage.
 
 ## Supabase (PostgreSQL gerenciado)
 1. No painel do projeto, clique em **Connect** e copie a URI do **Session pooler** (porta **5432**). O *Direct connection* é só IPv6 e o *Transaction pooler* (6543) não é indicado para este servidor, que mantém conexões abertas.

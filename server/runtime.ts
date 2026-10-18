@@ -1,56 +1,20 @@
 /**
- * Montagem do runtime (banco, contexto, API, gateway de tempo real, agendador).
- * Usado pelo servidor (server/index.ts) e pelos testes de integração.
+ * Servidor residente: HTTP próprio, Socket.IO, Next.js e agendador (server/index.ts, Docker, testes).
+ * O núcleo (banco, contexto, API) é montado em ./core.ts.
  */
 import http from "node:http";
 import path from "node:path";
 import { Server as IOServer } from "socket.io";
 import { getRequestListener } from "@hono/node-server";
-import { createDatabase, type Database } from "./db/client";
-import { loadConfig, type AppConfig, type AppContext } from "./context";
-import { closeRateLimits, createRateLimits } from "./lib/rate-limit";
-import { Realtime } from "./realtime/realtime";
+import type { Runtime } from "./core";
 import { attachGateway } from "./realtime/gateway";
-import { createApp } from "./app";
 import { closeExpiredQuestions } from "./domains/live";
 import { advanceTimedItems } from "./domains/presenter";
 import { runRetention } from "./domains/retention";
 import { processOutbox } from "./domains/integrations";
 import { log } from "./lib/logger";
 
-export interface RuntimeOptions {
-  databaseUrl: string;
-  config?: Partial<AppConfig>;
-  now?: () => Date;
-  rateLimitMultiplier?: number;
-}
-
-export interface Runtime {
-  ctx: AppContext;
-  app: ReturnType<typeof createApp>;
-  database: Database;
-  close: () => Promise<void>;
-}
-
-export async function createRuntime(opts: RuntimeOptions): Promise<Runtime> {
-  const database = await createDatabase(opts.databaseUrl);
-  const config = { ...loadConfig(), ...opts.config };
-  const rt = new Realtime();
-  const limits = createRateLimits(opts.rateLimitMultiplier ?? 1);
-  const ctx: AppContext = { db: database.db, config, limits, rt, now: opts.now ?? (() => new Date()) };
-  rt.bind(ctx);
-  const app = createApp(ctx);
-  return {
-    ctx,
-    app,
-    database,
-    close: async () => {
-      rt.stop();
-      closeRateLimits(limits);
-      await database.close();
-    },
-  };
-}
+export { createRuntime, type Runtime, type RuntimeOptions } from "./core";
 
 export interface HttpServerOptions {
   port: number;
@@ -166,6 +130,7 @@ export async function startHttpServer(runtime: Runtime, opts: HttpServerOptions)
     try {
       await closeExpiredQuestions(ctx);
       await advanceTimedItems(ctx);
+      await ctx.rt.drain();
     } catch (err) {
       log.error("falha no agendador", { err });
     } finally {

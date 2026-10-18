@@ -270,12 +270,19 @@ onQuestionClosed(async (l, closed, ctx) => {
 });
 
 /** Slides com tempo de permanência configurado avançam sozinhos (executado pelo agendador). */
-export async function advanceTimedItems(ctx: AppContext) {
+export async function advanceTimedItems(ctx: AppContext, sessionId?: string) {
   const rows = await ctx.db
     .select({ sessionId: presentationSessionStates.sessionId, itemId: presentationSessionStates.currentItemId, enteredAt: presentationSessionStates.itemEnteredAt, settings: presentationItems.settings })
     .from(presentationSessionStates)
     .innerJoin(presentationItems, eq(presentationItems.id, presentationSessionStates.currentItemId))
-    .where(and(eq(presentationSessionStates.status, "APRESENTANDO"), eq(presentationSessionStates.override, "NENHUM"), sql`(${presentationItems.settings}->>'durationSec') is not null`));
+    .where(
+      and(
+        eq(presentationSessionStates.status, "APRESENTANDO"),
+        eq(presentationSessionStates.override, "NENHUM"),
+        sql`(${presentationItems.settings}->>'durationSec') is not null`,
+        sessionId ? eq(presentationSessionStates.sessionId, sessionId) : undefined,
+      ),
+    );
   const now = ctx.now().getTime();
   let moved = 0;
   for (const r of rows) {

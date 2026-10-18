@@ -203,7 +203,7 @@ export async function screenState(ctx: AppContext, session: SessionRow, origin?:
     satisfaction: sat,
     podium: await podium(tx, session),
     prizes: await sessionPrizes(tx, session),
-    counts: { registered, connected: ctx.rt.connectedCount(session.id), answered: sq ? await answeredCount(tx, sq.id) : 0 },
+    counts: { registered, connected: await ctx.rt.connectedCount(session.id), answered: sq ? await answeredCount(tx, sq.id) : 0 },
     closing,
     serverNow: now.getTime(),
     v: ctx.rt.version(session.id),
@@ -298,7 +298,7 @@ export async function controlState(ctx: AppContext, session: SessionRow, origin?
     prizes: await sessionPrizes(tx, session),
     counts: {
       registered: await registeredCount(tx, session.id),
-      connected: ctx.rt.connectedCount(session.id),
+      connected: await ctx.rt.connectedCount(session.id),
       answeredCurrent: focus ? counts.get(focus.id) ?? 0 : 0,
       questionsDone: await questionsDone(tx, session.id),
     },

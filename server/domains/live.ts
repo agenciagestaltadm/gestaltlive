@@ -503,7 +503,8 @@ export async function leaderboardAction(ctx: AppContext, actor: Actor, sessionId
 
 /* ================================================================== fechamento automático */
 /** Fecha perguntas cujo cronômetro esgotou (executado pelo agendador). */
-export async function closeExpiredQuestions(ctx: AppContext) {
+/** Fecha perguntas com tempo esgotado (todas, ou só as de `sessionId` — usado pelo tick serverless). */
+export async function closeExpiredQuestions(ctx: AppContext, sessionId?: string) {
   const now = ctx.now();
   const rows = await ctx.db
     .select({
@@ -517,7 +518,14 @@ export async function closeExpiredQuestions(ctx: AppContext) {
     })
     .from(sessionQuestions)
     .innerJoin(eventSessions, eq(eventSessions.id, sessionQuestions.sessionId))
-    .where(and(eq(sessionQuestions.state, "ABERTA"), sql`${sessionQuestions.timeLimitMs} is not null`, sql`${sessionQuestions.timerRunningSince} is not null`))
+    .where(
+      and(
+        eq(sessionQuestions.state, "ABERTA"),
+        sql`${sessionQuestions.timeLimitMs} is not null`,
+        sql`${sessionQuestions.timerRunningSince} is not null`,
+        sessionId ? eq(sessionQuestions.sessionId, sessionId) : undefined,
+      ),
+    )
     .orderBy(asc(sessionQuestions.openedAt));
   let closed = 0;
   for (const r of rows) {

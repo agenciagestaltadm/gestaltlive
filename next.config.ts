@@ -1,9 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // A API e o gateway de tempo real rodam no servidor Node próprio (server/index.ts).
-  // O Next.js é responsável apenas pela interface.
+  // Servidor próprio (npm run dev/start, Docker): a API e o Socket.IO rodam em server/index.ts e o Next.js
+  // cuida da interface. Na Vercel, a API roda como função em src/app/api/[...path]/route.ts.
   poweredByHeader: false,
+  serverExternalPackages: ["pg", "@electric-sql/pglite", "sharp", "socket.io"],
   reactStrictMode: true,
   typedRoutes: false,
   async headers() {

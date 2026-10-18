@@ -101,12 +101,12 @@ Detalhes, variáveis, proxy e checklist em [docs/DEPLOY.md](docs/DEPLOY.md).
 | 17 | Acesso não autorizado negado | `realtime.test.ts` (API, socket, telão, outra org, palestrante, CSRF) |
 | 18 | Carga de 300 participantes | [docs/LOAD_TEST.md](docs/LOAD_TEST.md) |
 
-Situação atual: **101 testes unitários/integração (12 arquivos) e 5 E2E passando**, `tsc` sem erros, ESLint com 0 erros, `npm run build` ok.
+Situação atual: **109 testes unitários/integração (13 arquivos) e 5 E2E passando**, `tsc` sem erros, ESLint com 0 erros, `npm run build` ok.
 
 ## Documentação
 - [Arquitetura](docs/ARCHITECTURE.md) e [decisões (ADRs)](docs/adr/)
 - [Gerenciador de Apresentações](docs/APRESENTACOES.md)
-- [Implantação](docs/DEPLOY.md)
+- [Implantação](docs/DEPLOY.md) · [Vercel + Supabase](docs/VERCEL.md)
 - [Teste de carga](docs/LOAD_TEST.md)
 - [Privacidade e LGPD](docs/LGPD.md)
 - [Guia de interface](docs/UI_GUIDE.md)

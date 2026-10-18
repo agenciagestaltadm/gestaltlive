@@ -30,6 +30,15 @@ export default defineConfig({
       SEED_DEMO: "true",
       PUBLIC_URL: "",
       LOG_LEVEL: "warn",
+      // isolado do .env: nunca usa o Supabase real nos testes
+      REALTIME_TRANSPORT: "socket",
+      STORAGE_DRIVER: "disk",
+      UPLOAD_DIR: "./.data/e2e-uploads",
+      SUPABASE_URL: "",
+      SUPABASE_ANON_KEY: "",
+      SUPABASE_SERVICE_ROLE_KEY: "",
+      SUPABASE_ANNON_KEY: "",
+      SUPABASE_ROLE_KEY: "",
     },
   },
 });

@@ -250,7 +250,7 @@ export async function regenerateScreenToken(ctx: AppContext, actor: Actor, id: s
   const [u] = await ctx.db.update(eventSessions).set({ screenTokenNonce: randomToken(12) }).where(eq(eventSessions.id, id)).returning();
   await audit(ctx.db, actor, s.orgId, "session.screen_token", "session", id);
   // telões abertos com o token antigo são desconectados
-  ctx.rt.disconnectScreens(id);
+  ctx.rt.disconnectScreens(id, s.screenTokenNonce);
   return { screenUrl: screenUrl(ctx, u, origin) };
 }
 
