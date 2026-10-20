@@ -18,6 +18,7 @@ import {
   scoreTransactions,
   sessionParticipants,
   sessionQuestions,
+  wordCloudEntries,
 } from "../db/schema";
 import type { Actor } from "../auth/auth";
 import { authorize } from "../auth/permissions";
@@ -223,6 +224,11 @@ export async function anonymizeParticipantData(
     const ids = sps.map((s) => s.id);
     await tx.update(sessionParticipants).set({ displayName: "Anônimo", uniqueEmail: null, uniquePhone: null }).where(inArray(sessionParticipants.id, ids));
     await tx.delete(participantCustomValues).where(inArray(participantCustomValues.sessionParticipantId, ids));
+    // texto livre da nuvem de palavras pode conter dados pessoais: o conteúdo é apagado (fica só o registro)
+    await tx
+      .update(wordCloudEntries)
+      .set({ original: "", normalized: "", terms: [], status: "REJEITADA", reason: "ANONIMIZADO", moderatedAt: now })
+      .where(inArray(wordCloudEntries.sessionParticipantId, ids));
   }
   // eventos de integração ainda guardam os dados de contato — removidos junto (enviados ou não)
   await tx.delete(integrationOutbox).where(eq(integrationOutbox.participantId, p.id));

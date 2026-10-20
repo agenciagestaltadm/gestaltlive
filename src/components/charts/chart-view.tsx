@@ -4,13 +4,14 @@
  * respondentes, seleções), estado "Aguardando respostas", tela cheia e exportação.
  */
 import { useMemo, useRef, useState, useEffect } from "react";
-import { Download, Maximize2, Minimize2, Users, MousePointerClick, UserCheck } from "lucide-react";
+import { Download, Maximize2, Minimize2, Users, MousePointerClick, UserCheck, Tags } from "lucide-react";
 import type { ResultsDTO } from "@shared/types";
 import type { ChartType } from "@shared/charts/catalog";
 import { CHART_META } from "@shared/charts/catalog";
 import { buildChartOption, type ChartRenderConfig } from "@shared/charts/options";
 import { checkChart, chartContextForQuestion, defaultChartFor } from "@shared/charts/compat";
 import { EChart, type EChartHandle } from "./echart";
+import { WordCloudView } from "./word-cloud-view";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
 import { cn, fmtInt, fmtPct } from "@/lib/utils";
@@ -66,10 +67,12 @@ export function ChartView({ data, type, config, theme = "dark", large, className
   const reduced = useReducedMotion();
   const cfg: ChartRenderConfig = { showPercent: true, showValues: true, showLegend: true, sortDesc: false, colors: null, ...config };
   const resolved = data ? resolveChartType(data, type) : { type, fallbackReason: null };
+  // nuvem de palavras: desenhada pelo WordCloudView (texto livre não passa pelo ECharts)
+  const cloud = resolved.type === "wordcloud" || data?.questionType === "NUVEM_PALAVRAS";
   const option = useMemo(
-    () => (data ? buildChartOption(resolved.type, data, { theme, config: cfg, large: large || full, reducedMotion: reduced }) : null),
+    () => (data && !cloud ? buildChartOption(resolved.type, data, { theme, config: cfg, large: large || full, reducedMotion: reduced }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, resolved.type, theme, JSON.stringify(cfg), large, full, reduced],
+    [data, resolved.type, cloud, theme, JSON.stringify(cfg), large, full, reduced],
   );
 
   useEffect(() => {
@@ -105,6 +108,11 @@ export function ChartView({ data, type, config, theme = "dark", large, className
                   <MousePointerClick className="size-4" /> {fmtInt(data.totals.selections)} seleções
                 </span>
               )}
+              {data.wordCloud && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Tags className="size-4" /> {fmtInt(data.wordCloud.totals.termOccurrences)} {data.wordCloud.totals.termOccurrences === 1 ? "termo" : "termos"} · {fmtInt(data.wordCloud.totals.uniqueTerms)} {data.wordCloud.totals.uniqueTerms === 1 ? "diferente" : "diferentes"}
+                </span>
+              )}
               {data.accuracyPct !== null && <span className="text-positive">Acerto: {fmtPct(data.accuracyPct)}</span>}
               {preview && <span className="rounded-full bg-warning/20 px-2 py-0.5 text-xs text-warning">Prévia com dados ilustrativos</span>}
             </div>
@@ -132,13 +140,26 @@ export function ChartView({ data, type, config, theme = "dark", large, className
           )}
         </div>
       )}
-      {resolved.fallbackReason && !empty && (
+      {resolved.fallbackReason && !empty && !cloud && (
         <p className="mb-1 text-xs font-bold text-warning">
           Exibindo {CHART_META[resolved.type].label}: {resolved.fallbackReason}
         </p>
       )}
-      <div className="relative min-h-0 flex-1" style={{ height: full ? "calc(100dvh - 140px)" : height }}>
+      <div className="relative min-h-0 flex-1" style={{ height: full ? "calc(100dvh - 140px)" : height, minHeight: !full && typeof height === "number" ? height : undefined }}>
         {option && <EChart ref={ref} option={option} background={bg} ariaLabel={`${CHART_META[resolved.type].label}: ${data?.title ?? ""}`} />}
+        {data && cloud && (
+          <WordCloudView
+            ref={ref}
+            // posição absoluta: altura percentual não resolve dentro de item flex com base 0 (mesmo motivo do EChart)
+            className="absolute inset-0"
+            terms={data.wordCloud?.terms ?? []}
+            display={cfg.wordCloud}
+            reducedMotion={reduced}
+            still={preview}
+            ariaLabel={`Nuvem de palavras: ${data.title}`}
+            exportFooter={`Gestalt Live · ${fmtInt(data.totals.respondents)} ${data.totals.respondents === 1 ? "pessoa respondeu" : "pessoas responderam"}`}
+          />
+        )}
         {!data && (
           <div className={cn("absolute inset-0 grid place-items-center text-lg font-bold", theme === "dark" ? "text-white/60" : "text-muted-foreground")}>Aguardando respostas</div>
         )}
@@ -148,11 +169,19 @@ export function ChartView({ data, type, config, theme = "dark", large, className
         <table className="sr-only">
           <caption>{data.title}</caption>
           <thead>
-            <tr>
-              <th>Alternativa</th>
-              <th>Respostas</th>
-              <th>Percentual dos respondentes</th>
-            </tr>
+            {data.wordCloud ? (
+              <tr>
+                <th>Palavra</th>
+                <th>Frequência</th>
+                <th>{data.wordCloud.denominator.kind === "TERMOS" ? "Percentual dos termos contabilizados" : "Percentual das respostas aprovadas"}</th>
+              </tr>
+            ) : (
+              <tr>
+                <th>Alternativa</th>
+                <th>Respostas</th>
+                <th>Percentual dos respondentes</th>
+              </tr>
+            )}
           </thead>
           <tbody>
             {data.categories.map((c) => (

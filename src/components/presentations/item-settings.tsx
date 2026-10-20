@@ -19,7 +19,7 @@ import {
 } from "@shared/presentations";
 import { CHART_META, type ChartType } from "@shared/charts/catalog";
 import { chartContextForQuestion, compatibleCharts } from "@shared/charts/compat";
-import { isScoredType } from "@shared/schemas";
+import { isScoredType, isTextType } from "@shared/schemas";
 import { admin } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
@@ -329,7 +329,9 @@ function ColorField({ id, label, value, fallback, onChange }: { id: string; labe
 function QuestionChooser({ item, questions, onChange, uid }: { item: EditorItem; questions: QuestionRow[]; onChange: (q: QuestionRow, type: PresentationItemType) => void; uid: string }) {
   const current = questions.find((x) => x.id === item.questionId) ?? null;
   const scored = current ? isScoredType(current.type) : item.question?.scored ?? false;
-  const typeOptions: PresentationItemType[] = item.type === "CHART" ? ["CHART"] : scored ? ["QUIZ", "QUESTION"] : ["QUESTION", "POLL"];
+  // nuvem de palavras: só como Pergunta (não é enquete nem quiz) ou Gráfico
+  const text = !!current && isTextType(current.type);
+  const typeOptions: PresentationItemType[] = item.type === "CHART" ? ["CHART"] : text ? ["QUESTION"] : scored ? ["QUIZ", "QUESTION"] : ["QUESTION", "POLL"];
   const allowed = item.type === "QUIZ" ? questions.filter((x) => isScoredType(x.type)) : questions;
   return (
     <>
@@ -340,7 +342,7 @@ function QuestionChooser({ item, questions, onChange, uid }: { item: EditorItem;
           onChange={(e) => {
             const row = questions.find((x) => x.id === e.target.value);
             if (!row) return;
-            const type: PresentationItemType = item.type === "CHART" ? "CHART" : isScoredType(row.type) ? (item.type === "QUESTION" ? "QUESTION" : "QUIZ") : item.type === "QUIZ" ? "QUESTION" : item.type;
+            const type: PresentationItemType = item.type === "CHART" ? "CHART" : isTextType(row.type) ? "QUESTION" : isScoredType(row.type) ? (item.type === "QUESTION" ? "QUESTION" : "QUIZ") : item.type === "QUIZ" ? "QUESTION" : item.type;
             onChange(row, type);
           }}
         >
@@ -375,6 +377,16 @@ function ChartTypeField({ uid, q, value, onChange }: { uid: string; q: QuestionR
     );
   }, [q]);
   const incompatible = !!value && !!q && !compatible.includes(value);
+  if (q && isTextType(q.type)) {
+    // nuvem de palavras: a única visualização válida é a nuvem
+    return (
+      <Field label="Tipo de gráfico" htmlFor={`${uid}-ct`} hint="A Nuvem de Palavras é sempre exibida como nuvem; a aparência é configurada na própria pergunta.">
+        <NativeSelect id={`${uid}-ct`} value={value ?? ""} onChange={(e) => onChange((e.target.value || null) as ChartType | null)}>
+          <option value={value ?? ""}>{CHART_META.wordcloud.label}</option>
+        </NativeSelect>
+      </Field>
+    );
+  }
   return (
     <Field
       label="Tipo de gráfico"

@@ -18,7 +18,7 @@ npm run dev
 Abra `http://localhost:3000`. O banco PostgreSQL embutido (PGlite) é criado em `.data/db`, as migrações e o seed rodam sozinhos:
 
 - **Administrador:** `admin@gestalt.local` / `GestaltLive@2026` (definidos em `.env`; troque a senha em *Configurações → Minha conta*).
-- **Evento de demonstração:** "Vendas Inteligentes com Marketing Digital" — 10 perguntas de 7 tipos, gráficos variados, 3 prêmios e campos de perfil.
+- **Evento de demonstração:** "Vendas Inteligentes com Marketing Digital" — 11 perguntas de 8 tipos (inclui uma Nuvem de Palavras), gráficos variados, 3 prêmios e campos de perfil.
 
 Para participar pelo celular na mesma rede, acesse o painel pelo IP do computador (ex.: `http://192.168.0.10:3000`): o QR Code passa a apontar para esse endereço.
 
@@ -58,7 +58,9 @@ Detalhes, variáveis, proxy e checklist em [docs/DEPLOY.md](docs/DEPLOY.md).
 
 **Cadastro do participante** — sem senha; campos padrão configuráveis (obrigatório/opcional), campos personalizados e presets (empresa, profissão, cidade, segmento); política de unicidade por sessão (e-mail, WhatsApp, ambos, nenhum) com normalização; apelido/nome no ranking; consentimentos separados (participação obrigatória, marketing opcional) com versão e data; credencial persistida no aparelho; recuperação por código emitido pela equipe.
 
-**Construtor de perguntas** — 7 tipos (perfil, opinião, conhecimento, múltiplas corretas, sim/não, escala, NPS), imagem, alternativas com imagem e cor, categoria, tags, tempo limite, edição antes do encerramento, modo de exibição de resultados, explicação; arrastar e soltar; duplicar; banco de questões; importação/exportação JSON; versionamento com bloqueio estrutural de perguntas já respondidas.
+**Construtor de perguntas** — 8 tipos (perfil, opinião, conhecimento, múltiplas corretas, sim/não, escala, NPS e **Nuvem de Palavras**), imagem, alternativas com imagem e cor, categoria, tags, tempo limite, edição antes do encerramento, modo de exibição de resultados, explicação; arrastar e soltar; duplicar; banco de questões; importação/exportação JSON; versionamento com bloqueio estrutural de perguntas já respondidas.
+
+**Nuvem de Palavras** — respostas em texto pelo celular, nuvem ao vivo no telão (3 estilos, transições suaves, tela cheia, PNG), moderação (aprovar, ocultar, bloquear, restaurar), sinônimos, filtro de termos inadequados, limites por participante, ranking de termos com denominador explícito, CSV/XLSX/PDF e comparação entre turmas ([detalhes](docs/NUVEM_PALAVRAS.md)).
 
 **Gráficos** — 30 visualizações ECharts em galeria com prévia; motor de compatibilidade que só oferece gráficos estatisticamente corretos (parte-do-todo apenas em escolha única, temporais com horário real, cruzamentos reais por pergunta de perfil, hierarquias reais); cores, %, valores, legenda, ordenação; totais de inscritos × respondentes × seleções; "Aguardando respostas"; tela cheia; exportação PNG/SVG/PDF; tema claro/escuro; transições animadas; respeita movimento reduzido.
 
@@ -101,11 +103,12 @@ Detalhes, variáveis, proxy e checklist em [docs/DEPLOY.md](docs/DEPLOY.md).
 | 17 | Acesso não autorizado negado | `realtime.test.ts` (API, socket, telão, outra org, palestrante, CSRF) |
 | 18 | Carga de 300 participantes | [docs/LOAD_TEST.md](docs/LOAD_TEST.md) |
 
-Situação atual: **109 testes unitários/integração (13 arquivos) e 5 E2E passando**, `tsc` sem erros, ESLint com 0 erros, `npm run build` ok.
+Situação atual: **131 testes unitários/integração (15 arquivos) e 7 E2E passando**, `tsc` sem erros, ESLint com 0 erros, `npm run build` ok.
 
 ## Documentação
 - [Arquitetura](docs/ARCHITECTURE.md) e [decisões (ADRs)](docs/adr/)
 - [Gerenciador de Apresentações](docs/APRESENTACOES.md)
+- [Nuvem de Palavras](docs/NUVEM_PALAVRAS.md)
 - [Implantação](docs/DEPLOY.md) · [Vercel + Supabase](docs/VERCEL.md)
 - [Teste de carga](docs/LOAD_TEST.md)
 - [Privacidade e LGPD](docs/LGPD.md)

@@ -4,6 +4,7 @@
  */
 import type { ChartConfig, PresentationScreen, QuestionType, ResultsMode, SessionQuestionState, SessionStatus } from "./schemas";
 import type { NpsSummary, SatisfactionSummary } from "./scoring";
+import type { WordCloudAggregate, WordCloudMode } from "./wordcloud";
 
 /* ---------------------------------------------------------------- eventos em tempo real */
 export const RT = {
@@ -31,6 +32,10 @@ export const RT = {
   presenterChanged: "presentation:item",
   /** Pede ao cliente que recarregue o snapshot completo (ex.: sessão reconfigurada). */
   resync: "state:resync",
+  /** Nuvem de Palavras: quantidade de envios aguardando aprovação (somente painel). */
+  wordCloudPending: "wordcloud:pending",
+  /** Nuvem de Palavras: envio do participante aprovado/rejeitado pela moderação (sala pessoal). */
+  wordCloudEntry: "wordcloud:entry",
 } as const;
 export type RealtimeEventName = (typeof RT)[keyof typeof RT];
 
@@ -84,6 +89,24 @@ export interface PublicQuestionDTO {
   /** Preenchidos somente após a revelação do gabarito. */
   correctOptionIds: string[] | null;
   explanation: string | null;
+  /** Regras de envio da Nuvem de Palavras visíveis ao participante (somente nesse tipo). */
+  wordCloud: PublicWordCloudRulesDTO | null;
+}
+
+export interface PublicWordCloudRulesDTO {
+  mode: WordCloudMode;
+  maxWords: number;
+  maxEntries: number;
+  maxChars: number;
+  allowRepeat: boolean;
+  requireApproval: boolean;
+}
+
+/** Envios do próprio participante na Nuvem de Palavras ativa. */
+export interface MyWordCloudDTO {
+  entries: { id: string; text: string; status: "APROVADA" | "PENDENTE" | "REJEITADA"; createdAt: string }[];
+  /** Envios ainda disponíveis (recusados por filtro não contam). */
+  remaining: number;
 }
 
 /* ---------------------------------------------------------------- resultados */
@@ -118,7 +141,13 @@ export interface ResultsDTO {
   timeline: { bucketMs: number; points: { t: number; respondents: number; byCategory: number[] }[] };
   scatter: { rtMs: number; value: number }[] | null;
   cross: { questionTitle: string; segments: string[]; matrix: number[][] } | null;
+  /** Nuvem de Palavras: termos aprovados e visíveis (nunca envios pendentes nem textos originais). */
+  wordCloud?: WordCloudResultsDTO | null;
   generatedAt: string;
+}
+
+export interface WordCloudResultsDTO extends WordCloudAggregate {
+  mode: WordCloudMode;
 }
 
 /* ---------------------------------------------------------------- ranking */
@@ -223,6 +252,8 @@ export interface ParticipantStateDTO {
   activeQuestion: PublicQuestionDTO | null;
   /** Resposta do participante à pergunta ativa (se houver). */
   myAnswer: { optionIds: string[]; value: number | null; revision: number; isCorrect: boolean | null; points: number | null } | null;
+  /** Nuvem de Palavras ativa: envios do participante e quantos ainda pode fazer. */
+  myWordCloud: MyWordCloudDTO | null;
   /** Resultado visível ao público para a pergunta ativa, conforme o modo de exibição. */
   results: ResultsDTO | null;
   leaderboard: LeaderboardDTO | null;

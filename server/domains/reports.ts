@@ -17,8 +17,10 @@ import {
   participantCustomValues,
   participants,
   sessionParticipants,
+  questions,
   sessionQuestions,
   users,
+  wordCloudEntries,
 } from "../db/schema";
 import type { Actor } from "../auth/auth";
 import { authorize } from "../auth/permissions";
@@ -29,6 +31,9 @@ import { getSnapshot } from "./snapshots";
 import { isSelectionCorrect, npsSummary } from "@shared/scoring";
 import { audit } from "./audit";
 import { notFound } from "../lib/errors";
+import { wordCloudExportRows, wordCloudResults } from "./wordcloud";
+import type { ChartConfig } from "@shared/schemas";
+import type { WordCloudResultsDTO } from "@shared/types";
 
 export interface ReportFilter {
   fieldKey?: string | null;
@@ -108,13 +113,47 @@ export async function buildSessionReport(tx: Tx, sessionId: string, filter: Repo
     : [];
   const selByAnswer = new Map<string, string[]>();
   for (const x of sels) selByAnswer.set(x.answerId, [...(selByAnswer.get(x.answerId) ?? []), x.optionId]);
-  const interacted = new Set(answers.map((a) => a.spId)).size;
+  // nuvem de palavras: quem teve envio aprovado também interagiu
+  const textSps = (
+    await tx
+      .select({ spId: wordCloudEntries.sessionParticipantId })
+      .from(wordCloudEntries)
+      .where(and(eq(wordCloudEntries.sessionId, sessionId), eq(wordCloudEntries.status, "APROVADA")))
+  )
+    .map((r) => r.spId)
+    .filter(inFilter);
+  const interacted = new Set([...answers.map((a) => a.spId), ...textSps]).size;
 
   const sqs = await tx.select().from(sessionQuestions).where(eq(sessionQuestions.sessionId, sessionId)).orderBy(asc(sessionQuestions.position));
   const questionsOut = [];
   const correctBySp = new Map<string, number>();
   for (const sq of sqs) {
     const snap = await getSnapshot(tx, sq.versionId);
+    if (snap.type === "NUVEM_PALAVRAS") {
+      const [qRow] = await tx.select({ chart: questions.chart }).from(questions).where(eq(questions.id, sq.questionId));
+      const wc = await wordCloudResults(tx, sq, snap.wordCloud, (qRow?.chart ?? snap.chart) as ChartConfig, { only: inFilter, maxTerms: 50 });
+      questionsOut.push({
+        sessionQuestionId: sq.id,
+        questionId: sq.questionId,
+        position: sq.position + 1,
+        title: snap.title,
+        type: snap.type,
+        category: snap.category,
+        state: sq.state,
+        scored: false,
+        respondents: wc.totals.respondents,
+        responseRatePct: registered ? (wc.totals.respondents / registered) * 100 : 0,
+        avgResponseMs: null,
+        categories: wc.terms.map((t) => ({ label: t.label, count: t.count, pct: t.pct, isCorrect: null })),
+        accuracyPct: null,
+        mean: null,
+        nps: null,
+        options: [],
+        selectable: false,
+        wordCloud: wc as WordCloudResultsDTO | null,
+      });
+      continue;
+    }
     const qa = answers.filter((a) => a.sqId === sq.id);
     const numeric = snap.type === "ESCALA" || snap.type === "NPS";
     const respondents = qa.length;
@@ -165,6 +204,7 @@ export async function buildSessionReport(tx: Tx, sessionId: string, filter: Repo
       nps: snap.type === "NPS" ? npsSummary(values) : null,
       options: snap.options.map((o) => ({ id: o.id, label: o.label })),
       selectable: !numeric && snap.maxSelections === 1,
+      wordCloud: null as WordCloudResultsDTO | null,
     });
   }
   const scored = questionsOut.filter((q) => q.scored);
@@ -280,9 +320,17 @@ export async function compareSessions(ctx: AppContext, actor: Actor, eventId: st
       questionId: qid,
       title: first.title,
       scored: first.scored,
+      type: first.type,
       perSession: reports.map((r) => {
         const q = r.questions.find((x) => x.questionId === qid);
-        return { sessionId: r.session.id, responseRatePct: q?.responseRatePct ?? null, accuracyPct: q?.accuracyPct ?? null, mean: q?.mean ?? null };
+        return {
+          sessionId: r.session.id,
+          responseRatePct: q?.responseRatePct ?? null,
+          accuracyPct: q?.accuracyPct ?? null,
+          mean: q?.mean ?? null,
+          // nuvem de palavras: termos mais citados nesta turma (cada turma com os próprios dados)
+          topTerms: q?.wordCloud ? q.wordCloud.terms.slice(0, 5).map((t) => ({ label: t.label, count: t.count, pct: t.pct })) : null,
+        };
       }),
     };
   });
@@ -304,6 +352,19 @@ export async function compareSessions(ctx: AppContext, actor: Actor, eventId: st
 }
 
 /* ------------------------------------------------------------------ exportações */
+const WORD_CLOUD_COLUMNS = [
+  { header: "Nº", key: "pergunta", width: 6 },
+  { header: "Pergunta", key: "enunciado", width: 44 },
+  { header: "Enviado em", key: "horario", width: 24 },
+  { header: "Participante", key: "participante", width: 24 },
+  { header: "Texto original", key: "texto_original", width: 36 },
+  { header: "Texto normalizado", key: "texto_normalizado", width: 36 },
+  { header: "Termos", key: "termos", width: 36 },
+  { header: "Status", key: "status", width: 12 },
+  { header: "Motivo", key: "motivo", width: 22 },
+  { header: "Moderado em", key: "moderado_em", width: 24 },
+];
+
 function csvCell(v: unknown): string {
   if (v === null || v === undefined) return "";
   let s = v instanceof Date ? v.toISOString() : String(v);
@@ -358,7 +419,7 @@ async function participantsWithConsent(tx: Tx, sessionId: string) {
   });
 }
 
-export async function exportSessionCsv(ctx: AppContext, actor: Actor, sessionId: string, kind: "ranking" | "respostas" | "participantes") {
+export async function exportSessionCsv(ctx: AppContext, actor: Actor, sessionId: string, kind: "ranking" | "respostas" | "participantes" | "nuvem") {
   const s = await loadSession(ctx, actor, sessionId, "reports.read");
   await audit(ctx.db, actor, s.orgId, "export.csv", "session", s.id, { kind });
   if (kind === "ranking") {
@@ -386,6 +447,7 @@ export async function exportSessionCsv(ctx: AppContext, actor: Actor, sessionId:
       { key: "disqualified", label: "Desclassificado" },
     ]);
   }
+  if (kind === "nuvem") return toCsv(await wordCloudExportRows(ctx.db, s.id), WORD_CLOUD_COLUMNS.map((c) => ({ key: c.key, label: c.header })));
   const rows = await answersExportRows(ctx.db, s.id);
   return toCsv(rows, [
     { key: "position", label: "Nº" },
@@ -523,6 +585,28 @@ export async function exportSessionXlsx(ctx: AppContext, actor: Actor, sessionId
   sat.columns = [{ header: "Horário", key: "t", width: 26 }, { header: "Valeu a pena", key: "positive", width: 14 }, { header: "Insatisfeito", key: "negative", width: 14 }];
   header(sat);
   sat.addRows(report.satisfaction.timeline);
+  const wcRows = await wordCloudExportRows(ctx.db, s.id);
+  if (wcRows.length) {
+    const wc = wb.addWorksheet("Nuvem de palavras");
+    wc.columns = WORD_CLOUD_COLUMNS;
+    header(wc);
+    wc.addRows(wcRows);
+    const terms = wb.addWorksheet("Termos da nuvem");
+    terms.columns = [
+      { header: "Nº", key: "position", width: 6 },
+      { header: "Pergunta", key: "title", width: 50 },
+      { header: "Termo", key: "label", width: 30 },
+      { header: "Frequência", key: "count", width: 12 },
+      { header: "Percentual", key: "pct", width: 12 },
+      { header: "Base do percentual", key: "base", width: 30 },
+    ];
+    header(terms);
+    for (const q of report.questions) {
+      if (!q.wordCloud) continue;
+      const base = q.wordCloud.denominator.kind === "TERMOS" ? `${q.wordCloud.denominator.value} termos contabilizados` : `${q.wordCloud.denominator.value} respostas aprovadas`;
+      for (const t of q.wordCloud.terms) terms.addRow({ position: q.position, title: q.title, label: t.label, count: t.count, pct: `${t.pct.toFixed(1)}%`, base });
+    }
+  }
   const demo = wb.addWorksheet("Perfil");
   demo.columns = [{ header: "Campo", key: "field", width: 24 }, { header: "Valor", key: "value", width: 40 }, { header: "Participantes", key: "count", width: 14 }];
   header(demo);

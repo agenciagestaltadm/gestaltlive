@@ -190,3 +190,27 @@ describe("isolamento e autorização (cenários 13 e 17)", () => {
     await expectHttpError(env.admin.req("POST", `/api/admin/sessions/${s.sessionId}/pause`, {}, { origin: "https://site-malicioso.example" }), 403);
   });
 });
+
+describe("nuvem de palavras em tempo real (Socket.IO)", () => {
+  it("telão e celulares recebem a nuvem crescendo sem recarregar; reconexão recupera a nuvem", async () => {
+    const s = await liveDemoSession(env, "RT nuvem");
+    const people: ParticipantClient[] = [];
+    for (let i = 1; i <= 6; i++) people.push(await ParticipantClient.join(env.rt, s.code, 500 + i));
+    const ctrl = await env.admin.get(`/api/admin/sessions/${s.sessionId}/control`);
+    const wc = ctrl.questions.find((q: any) => q.type === "NUVEM_PALAVRAS");
+    const [row] = await env.rt.ctx.db.select().from(eventSessions).where(eq(eventSessions.id, s.sessionId));
+    const screen = track(await connectSocket(srv.port, { role: "screen", code: s.code, token: screenToken(env.rt.ctx, row) }));
+    const phone = track(await connectSocket(srv.port, { role: "participant", code: s.code, token: people[5].token }));
+    await env.admin.post(`/api/admin/sessions/${s.sessionId}/questions/${wc.sessionQuestionId}/open`);
+    const grown = waitFor(screen, RT.resultsUpdated, (d: any) => d.wordCloud?.terms[0]?.label === "Vendas" && d.wordCloud.terms[0].count === 4, 8000);
+    for (const [i, w] of ["VENDAS", "vendas", "Vendas", "vendas", "Leads"].entries()) await people[i].word(wc.sessionQuestionId, w);
+    const r = await grown;
+    expect(r.wordCloud.denominator).toEqual({ kind: "TERMOS", value: 5 });
+    const pub = await waitFor(phone, RT.resultsUpdated, (d: any) => d.wordCloud?.totals.termOccurrences === 5, 8000);
+    expect(JSON.stringify(pub)).not.toContain("Participante"); // sem dados pessoais
+    // reconexão: o estado do telão traz a nuvem atual
+    const token = screenToken(env.rt.ctx, row);
+    const state = await (await env.rt.app.request(`/api/screen/${s.code}/state?t=${token}`)).json();
+    expect(state.results.wordCloud.terms[0]).toMatchObject({ label: "Vendas", count: 4 });
+  });
+});

@@ -16,7 +16,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AppContext } from "../context";
 import { rowsOf, type Tx } from "../db/client";
-import { events, integrationOutbox, integrationWebhooks, participantAnswers, satisfactionVotes, sessionParticipants } from "../db/schema";
+import { events, integrationOutbox, integrationWebhooks, participantAnswers, satisfactionVotes, sessionParticipants, wordCloudEntries } from "../db/schema";
 import type { Actor } from "../auth/auth";
 import { authorize } from "../auth/permissions";
 import { badRequest, notFound } from "../lib/errors";
@@ -113,8 +113,8 @@ export async function enqueueSessionEnded(
   const [t] = rowsOf<{ participants: number; interacted: number; answers: number; positive: number; negative: number }>(
     await tx.execute(sql`select
       (select count(*)::int from ${sessionParticipants} where session_id = ${session.id}) as participants,
-      (select count(distinct session_participant_id)::int from ${participantAnswers} where session_id = ${session.id} and status = 'ACCEPTED') as interacted,
-      (select count(*)::int from ${participantAnswers} where session_id = ${session.id} and status = 'ACCEPTED') as answers,
+      (select count(distinct sp)::int from (select session_participant_id as sp from ${participantAnswers} where session_id = ${session.id} and status = 'ACCEPTED' union select session_participant_id from ${wordCloudEntries} where session_id = ${session.id} and status = 'APROVADA') t) as interacted,
+      (select count(*)::int from ${participantAnswers} where session_id = ${session.id} and status = 'ACCEPTED') + (select count(*)::int from ${wordCloudEntries} where session_id = ${session.id} and status = 'APROVADA') as answers,
       (select count(*)::int from ${satisfactionVotes} where session_id = ${session.id} and value = 'POSITIVO') as positive,
       (select count(*)::int from ${satisfactionVotes} where session_id = ${session.id} and value = 'NEGATIVO') as negative`),
   );

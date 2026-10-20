@@ -7,6 +7,9 @@
 import type { jsPDF as JsPDF } from "jspdf";
 import { SESSION_STATUS_LABELS, QUESTION_TYPE_LABELS } from "@shared/schemas";
 import { buildChartOption, buildSatisfactionPie, buildSatisfactionTimeline } from "@shared/charts/options";
+import { DEFAULT_WORD_CLOUD_DISPLAY, type WordCloudDisplay } from "@shared/wordcloud";
+import { renderWordCloudImage } from "@/components/charts/word-cloud-layout";
+import { denominatorLabel } from "@/components/charts/word-cloud-table";
 import { buildSimpleBarOption, toResultsDTO } from "./report-ui";
 import type { SessionReport } from "./types";
 
@@ -16,6 +19,8 @@ const NAVY: [number, number, number] = [11, 23, 54];
 const BRAND: [number, number, number] = [255, 0, 104];
 const MUTED: [number, number, number] = [91, 100, 128];
 const LIGHT: [number, number, number] = [241, 244, 250];
+/** Nuvem no papel: estilo Gestalt sobre fundo claro (legível na impressão). */
+const PRINT_CLOUD: WordCloudDisplay = { ...DEFAULT_WORD_CLOUD_DISPLAY, style: "GESTALT", background: "CLARO", animation: "NENHUMA", showFrequency: false, maxTerms: 50 };
 
 /** As fontes padrão do jsPDF cobrem apenas Latin-1: normaliza o restante. */
 function pdfText(s: string | number | null | undefined): string {
@@ -245,18 +250,44 @@ export async function exportSessionReportPdf(report: SessionReport, opts: { file
       const title = pdf.splitTextToSize(pdfText(`${q.position}. ${q.title}`), cw) as string[];
       pdf.text(title, m, y + 10);
       y += title.length * 13 + 2;
+      const cloud = q.type === "NUVEM_PALAVRAS";
       const parts = [
         QUESTION_TYPE_LABELS[q.type] ?? q.type,
         `${q.respondents} respondentes`,
         `taxa de resposta ${pct(q.responseRatePct)}`,
-        `tempo médio ${sec(q.avgResponseMs)}`,
       ];
+      if (!cloud) parts.push(`tempo médio ${sec(q.avgResponseMs)}`);
+      if (cloud && q.wordCloud) parts.push(`${q.wordCloud.totals.termOccurrences} termos`, `${q.wordCloud.totals.uniqueTerms} únicos`);
       if (q.accuracyPct !== null) parts.push(`acerto ${pct(q.accuracyPct)}`);
       if (q.nps?.score !== null && q.nps?.score !== undefined) parts.push(`NPS ${q.nps.score}`);
       else if (q.mean !== null) parts.push(`média ${q.mean.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}`);
       paragraph(parts.join(" · "), 8);
       if (q.respondents === 0) {
         paragraph("Sem respostas registradas.", 8);
+        continue;
+      }
+      if (cloud) {
+        const wc = q.wordCloud;
+        if (!wc || wc.terms.length === 0) {
+          paragraph("Nenhum termo aprovado neste recorte.", 8);
+          continue;
+        }
+        try {
+          const img = await renderWordCloudImage(wc.terms, PRINT_CLOUD, { aspect: 9 / 16 });
+          const h = (cw * img.height) / img.width;
+          ensure(h + 6);
+          pdf.addImage(img.dataUrl, "PNG", m, y, cw, h);
+          y += h + 8;
+        } catch {
+          paragraph("Não foi possível desenhar a nuvem neste navegador; veja os termos abaixo.", 8);
+        }
+        paragraph(`Termos mais citados (percentual sobre ${denominatorLabel(wc)}):`, 8, NAVY);
+        table(
+          ["#", "Palavra", "Frequência", "Percentual"],
+          wc.terms.slice(0, 10).map((t, i) => [i + 1, t.label, t.count, pct(t.pct, 1)]),
+          [6, 58, 18, 18],
+          ["left", "left", "right", "right"],
+        );
         continue;
       }
       const numeric = q.type === "ESCALA" || q.type === "NPS";

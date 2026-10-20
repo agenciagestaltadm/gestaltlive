@@ -215,3 +215,25 @@ describe("rotina diária (Vercel Cron)", () => {
     delete process.env.CRON_SECRET;
   });
 });
+
+describe("nuvem de palavras no modo serverless", () => {
+  it("envios entram pelo tick: telão e painel recebem a nuvem; o celular recebe a contagem", async () => {
+    const ctrl = await env.admin.get(`/api/admin/sessions/${s.sessionId}/control`);
+    const wc = ctrl.questions.find((q: { type: string }) => q.type === "NUVEM_PALAVRAS");
+    await env.admin.post(`/api/admin/sessions/${s.sessionId}/questions/${wc.sessionQuestionId}/open`);
+    const screen = (await ticket(screenAuth)).json.topics[0];
+    const control = (await ticket({ role: "control", sessionId: s.sessionId }, env.admin.cookie)).json.topics[0];
+    const mark = sent.length;
+    const r = await p.word(wc.sessionQuestionId, "Prospecção");
+    expect(r.outcome).toBe("ACEITA");
+    // o envio em si não publica a nuvem (agregada pelo tick)
+    expect(topicsOf([RT.resultsUpdated], mark)).toHaveLength(0);
+    await nextWindow();
+    await tick();
+    const updates = topicsOf([RT.resultsUpdated], mark);
+    for (const topic of [screen, control]) {
+      const m = updates.find((u) => u.topic === topic)!;
+      expect((m.payload as any).data.wordCloud.terms[0]).toMatchObject({ label: "Prospecção", count: 1 });
+    }
+  });
+});

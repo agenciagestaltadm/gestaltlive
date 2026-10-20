@@ -41,6 +41,7 @@ import {
   XCircle,
   ExternalLink,
   Presentation,
+  Cloud,
 } from "lucide-react";
 import type { ControlQuestionDTO, ControlStateDTO, LeaderboardDTO, ResultsDTO, SatisfactionDTO, ActivityItemDTO } from "@shared/types";
 import { RT } from "@shared/types";
@@ -56,6 +57,8 @@ import { toast } from "@/components/ui/toast";
 import { ChartView } from "@/components/charts/chart-view";
 import { SatisfactionPie, SatisfactionStats, SatisfactionTimeline } from "@/components/charts/satisfaction-charts";
 import { LeaderboardList } from "@/components/live/leaderboard";
+import { WordCloudLive, WordCloudPendingBadge } from "@/components/live/word-cloud-moderation";
+import { setWordCloudPending } from "@/components/live/word-cloud-pending";
 import { Countdown } from "@/components/live/timer";
 import { ProductMark } from "@/components/brand";
 import { cn, fmtInt, fmtPct, fmtDateTime } from "@/lib/utils";
@@ -147,6 +150,7 @@ export default function ControlPage() {
           const items: ActivityItemDTO[] = d.participants.slice(-5).map((p) => ({ id: `j-${p.id}`, type: "participant.joined", label: `Novo participante: ${p.displayName}`, at: new Date().toISOString() }));
           return { ...s, activity: [...items.reverse(), ...s.activity].slice(0, 40) };
         }),
+      [RT.wordCloudPending]: (d: { sessionQuestionId: string; pending: number }) => setWordCloudPending(d.sessionQuestionId, d.pending),
       [RT.resync]: () => {
         if (resyncTimer.current) clearTimeout(resyncTimer.current);
         resyncTimer.current = setTimeout(() => void load(), 250);
@@ -160,8 +164,10 @@ export default function ControlPage() {
   // resultados da pergunta selecionada (com cruzamento opcional)
   useEffect(() => {
     if (!q || q.state === "PRONTA") return;
-    const qs = crossQ ? `?cross=${crossQuestionId}` : "";
-    if (!crossQ && results[q.sessionQuestionId]) return;
+    // nuvem de palavras não tem cruzamento por perfil
+    const cross = q.type === "NUVEM_PALAVRAS" ? "" : crossQ;
+    const qs = cross ? `?cross=${crossQuestionId}` : "";
+    if (!cross && results[q.sessionQuestionId]) return;
     void admin.get<ResultsDTO>(`/sessions/${id}/results/${q.sessionQuestionId}${qs}`).then((r) => setResults((m) => ({ ...m, [q.sessionQuestionId]: r })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q?.sessionQuestionId, q?.state, crossQ]);
@@ -184,7 +190,7 @@ export default function ControlPage() {
         void act("timer", `/questions/${active.sessionQuestionId}/${active.timer.running ? "timer-pause" : "timer-start"}`);
       } else if (k === "f" && active?.state === "ABERTA") void act("close", `/questions/${active.sessionQuestionId}/close`);
       else if (k === "r" && q && q.state !== "PRONTA") void act("show", `/questions/${q.sessionQuestionId}/show-results`);
-      else if (k === "c" && q && q.scored && (q.state === "FECHADA" || q.state === "RESULTADO_EXIBIDO")) void act("reveal", `/questions/${q.sessionQuestionId}/reveal`);
+      else if (k === "c" && q && q.scored && q.type !== "NUVEM_PALAVRAS" && (q.state === "FECHADA" || q.state === "RESULTADO_EXIBIDO")) void act("reveal", `/questions/${q.sessionQuestionId}/reveal`);
       else if (k === "b") void act("back", "/presentation", { back: true });
       else if (k === "?") setHelpOpen(true);
       else {
@@ -388,10 +394,14 @@ export default function ControlPage() {
               </div>
               <p className="mt-1 line-clamp-2 text-sm font-bold">{x.title}</p>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-white/50">
-                <span>{QUESTION_TYPE_LABELS[x.type]}</span>
+                <span className="inline-flex items-center gap-1">
+                  {x.type === "NUVEM_PALAVRAS" && <Cloud className="size-3" aria-hidden />}
+                  {QUESTION_TYPE_LABELS[x.type]}
+                </span>
                 {x.timer.limitMs && <span>{Math.round(x.timer.limitMs / 1000)}s</span>}
                 {x.answeredCount > 0 && <span>{x.answeredCount} resp.</span>}
                 {x.correctRevealedAt && <span className="text-positive">gabarito revelado</span>}
+                {x.type === "NUVEM_PALAVRAS" && <WordCloudPendingBadge sqId={x.sessionQuestionId} className="px-1.5 py-0 text-[10px]" />}
               </div>
             </button>
           ))}
@@ -402,6 +412,9 @@ export default function ControlPage() {
           {q ? (
             <QuestionPanel
               q={q}
+              sessionId={id}
+              sessionCode={s.code}
+              connected={state.counts.connected}
               isActive={q.sessionQuestionId === state.activeQuestionId}
               live={live}
               pending={pending}
@@ -584,6 +597,9 @@ export default function ControlPage() {
 
 function QuestionPanel({
   q,
+  sessionId,
+  sessionCode,
+  connected,
   isActive,
   live,
   pending,
@@ -597,6 +613,9 @@ function QuestionPanel({
   act,
 }: {
   q: ControlQuestionDTO;
+  sessionId: string;
+  sessionCode: string;
+  connected: number;
   isActive: boolean;
   live: boolean;
   pending: string | null;
@@ -611,6 +630,7 @@ function QuestionPanel({
 }) {
   const base = `/questions/${q.sessionQuestionId}`;
   const closed = q.state === "FECHADA" || q.state === "RESULTADO_EXIBIDO";
+  const cloud = q.type === "NUVEM_PALAVRAS";
   return (
     <>
       <section className="rounded-2xl border border-white/10 bg-navy-900 p-5">
@@ -686,12 +706,12 @@ function QuestionPanel({
                 <Eye /> Exibir resultado
               </Button>
             ))}
-          {q.scored && closed && !q.correctRevealedAt && (
+          {q.scored && !cloud && closed && !q.correctRevealedAt && (
             <Button variant="positive" onClick={() => act("reveal", `${base}/reveal`, {}, "Resposta correta revelada e pontos publicados.")} loading={pending === "reveal"}>
               <CheckCircle2 /> Revelar resposta correta
             </Button>
           )}
-          {q.scored && q.state === "ABERTA" && (
+          {q.scored && !cloud && q.state === "ABERTA" && (
             <span className="inline-flex items-center gap-1.5 text-xs text-white/50">
               <XCircle className="size-3.5" /> O gabarito só pode ser revelado após o encerramento.
             </span>
@@ -708,6 +728,9 @@ function QuestionPanel({
         )}
       </section>
 
+      {cloud ? (
+        <WordCloudLive key={q.sessionQuestionId} sessionId={sessionId} sessionCode={sessionCode} q={q} results={results} connected={connected} isActive={isActive} />
+      ) : (
       <section className="rounded-2xl border border-white/10 bg-navy-900 p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-black uppercase tracking-wider text-white/70">Resultado {isActive && q.state === "ABERTA" ? "ao vivo" : ""}</h2>
@@ -741,6 +764,7 @@ function QuestionPanel({
           {q.resultsShownAt ? "O público está vendo este resultado." : "O público ainda não vê a distribuição das respostas."} Gabarito marcado em verde apenas neste painel até a revelação.
         </p>
       </section>
+      )}
     </>
   );
 }

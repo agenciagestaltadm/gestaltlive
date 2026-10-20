@@ -17,7 +17,7 @@ describe("contagens em listas", () => {
   it("lista de eventos traz perguntas, sessões e sessões ativas", async () => {
     const list = await env.admin.get(`/api/admin/events?orgId=${env.orgId}`);
     const demo = list.find((e: any) => e.id === s.eventId);
-    expect(demo.questionCount).toBe(10);
+    expect(demo.questionCount).toBe(11);
     expect(demo.sessionCount).toBe(1);
     expect(demo.liveCount).toBe(1);
   });

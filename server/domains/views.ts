@@ -26,6 +26,7 @@ import { myVote, satisfactionData } from "./satisfaction";
 import { myAnswerFor } from "./answers";
 import { screenPresenterBlock } from "./presenter-view";
 import type { ParticipantAuth } from "./participants";
+import { myWordCloud, rulesOf, wordCloudRespondents } from "./wordcloud";
 
 export type PresentationRow = typeof presentationStates.$inferSelect;
 
@@ -85,6 +86,10 @@ export async function publicQuestion(tx: Tx, sq: SessionQuestionRow, total: numb
     // gabarito nunca sai do servidor antes da revelação
     correctOptionIds: revealed && snap.scoring ? snap.options.filter((o) => o.isCorrect).map((o) => o.id) : null,
     explanation: revealed ? snap.explanation : null,
+    wordCloud:
+      snap.type === "NUVEM_PALAVRAS"
+        ? (({ mode, maxWords, maxEntries, maxChars, allowRepeat, requireApproval }) => ({ mode, maxWords, maxEntries, maxChars, allowRepeat, requireApproval }))(rulesOf(snap.wordCloud))
+        : null,
   };
 }
 
@@ -153,6 +158,7 @@ export async function participantState(ctx: AppContext, auth: ParticipantAuth, o
     satisfaction: await myVote(tx, auth.sp.id),
     activeQuestion,
     myAnswer,
+    myWordCloud: sq && activeQuestion?.type === "NUVEM_PALAVRAS" ? await myWordCloud(tx, auth.sp.id, sq) : null,
     results: sq && resultsPublic(sq) ? await computeResults(tx, sq, { includeCorrect: false }) : null,
     leaderboard: lb,
     prizes: pub.settings.showPrizesToParticipants ? await sessionPrizes(tx, session) : [],
@@ -264,6 +270,8 @@ export async function controlState(ctx: AppContext, session: SessionRow, origin?
       .where(and(eq(participantAnswers.sessionId, session.id), eq(participantAnswers.status, "ACCEPTED")))
       .groupBy(participantAnswers.sessionQuestionId);
     for (const r of rows) counts.set(r.sq, Number(r.n));
+    // nuvem de palavras: participantes com envio aprovado
+    for (const [sqId, n] of await wordCloudRespondents(tx, list.map((q) => q.id))) counts.set(sqId, (counts.get(sqId) ?? 0) + n);
   }
   const qs: ControlQuestionDTO[] = [];
   const profileQuestions: ControlStateDTO["profileQuestions"] = [];

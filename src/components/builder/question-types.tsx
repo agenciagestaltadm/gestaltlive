@@ -1,6 +1,6 @@
 "use client";
-/** Apresentação dos 7 tipos de pergunta: ícone, descrição e seletor em cartões. */
-import { Brain, Gauge, ListChecks, MessageSquareText, SlidersHorizontal, ThumbsUp, UserRound } from "lucide-react";
+/** Apresentação dos tipos de pergunta: ícone, descrição e seletor em cartões. */
+import { Brain, Cloud, Gauge, ListChecks, MessageSquareText, SlidersHorizontal, ThumbsUp, UserRound } from "lucide-react";
 import { QUESTION_TYPES, QUESTION_TYPE_LABELS, isScoredType, type QuestionType } from "@shared/schemas";
 import { Badge, Dialog } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,7 @@ export const TYPE_ICONS: Record<QuestionType, React.ComponentType<{ className?: 
   SIM_NAO: ThumbsUp,
   ESCALA: SlidersHorizontal,
   NPS: Gauge,
+  NUVEM_PALAVRAS: Cloud,
 };
 
 export const TYPE_DESCRIPTIONS: Record<QuestionType, { text: string; example: string }> = {
@@ -43,6 +44,10 @@ export const TYPE_DESCRIPTIONS: Record<QuestionType, { text: string; example: st
   NPS: {
     text: "Nota de 0 a 10 com classificação em promotores, neutros e detratores.",
     example: "Ex.: Quanto você recomendaria este treinamento?",
+  },
+  NUVEM_PALAVRAS: {
+    text: "Permita que os participantes enviem palavras ou frases curtas pelo celular e acompanhe uma nuvem de palavras sendo construída em tempo real.",
+    example: "Ex.: Qual palavra representa seu maior desafio nas vendas?",
   },
 };
 

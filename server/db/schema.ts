@@ -8,6 +8,7 @@
  *   audit_logs, session_events, leaderboard_snapshots) são append-only.
  */
 import { sql } from "drizzle-orm";
+import type { WordCloudConfig } from "../../shared/schemas";
 import {
   pgTable,
   pgEnum,
@@ -49,6 +50,7 @@ export const questionType = pgEnum("question_type", [
   "SIM_NAO",
   "ESCALA",
   "NPS",
+  "NUVEM_PALAVRAS",
 ]);
 export const questionStatus = pgEnum("question_status", ["RASCUNHO", "PRONTA"]);
 export const sessionQuestionState = pgEnum("session_question_state", [
@@ -242,6 +244,8 @@ export const questions = pgTable(
     chart: jsonb("chart").notNull(),
     resultsMode: resultsMode("results_mode").notNull().default("MANUAL"),
     explanation: text("explanation"),
+    /** Regras da Nuvem de Palavras (somente nesse tipo; a aparência fica em `chart.wordCloud`). */
+    wordCloud: jsonb("word_cloud").$type<WordCloudConfig>(),
     currentVersion: integer("current_version").notNull().default(1),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -478,6 +482,62 @@ export const participantAnswers = pgTable(
     index("answers_sq_idx").on(t.sessionQuestionId, t.status),
     index("answers_session_idx").on(t.sessionId),
   ],
+);
+
+/* ================================================================== nuvem de palavras */
+export const wordCloudEntryStatus = pgEnum("word_cloud_entry_status", ["APROVADA", "PENDENTE", "REJEITADA"]);
+export const wordCloudTermAction = pgEnum("word_cloud_term_action", ["OCULTO", "BLOQUEADO"]);
+
+/**
+ * Envios de texto da Nuvem de Palavras. Guarda o texto original (limpo), a forma normalizada para análise e
+ * os termos como digitados; o agrupamento (maiúsculas, acentos, sinônimos, termos ocultos) é feito na agregação.
+ * Nada é apagado pela moderação: o status muda e fica registrado quem moderou.
+ */
+export const wordCloudEntries = pgTable(
+  "word_cloud_entries",
+  {
+    id: id(),
+    orgId: uuid("org_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id").notNull().references(() => eventSessions.id, { onDelete: "cascade" }),
+    sessionQuestionId: uuid("session_question_id")
+      .notNull()
+      .references(() => sessionQuestions.id, { onDelete: "cascade" }),
+    sessionParticipantId: uuid("session_participant_id")
+      .notNull()
+      .references(() => sessionParticipants.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    original: text("original").notNull(),
+    normalized: text("normalized").notNull(),
+    terms: jsonb("terms").$type<string[]>().notNull().default([]),
+    status: wordCloudEntryStatus("status").notNull().default("APROVADA"),
+    /** Motivo da recusa (ex.: TERMO_NAO_PERMITIDO) ou observação da moderação. */
+    reason: text("reason"),
+    moderatedByUserId: uuid("moderated_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    moderatedAt: timestamp("moderated_at", { withTimezone: true, mode: "date" }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("word_cloud_idempotency_uq").on(t.sessionParticipantId, t.idempotencyKey),
+    index("word_cloud_sq_status_idx").on(t.sessionQuestionId, t.status),
+    index("word_cloud_sp_idx").on(t.sessionParticipantId, t.sessionQuestionId),
+  ],
+);
+
+/** Termos ocultados ou bloqueados pela moderação numa pergunta da sessão (restaurar = remover a regra). */
+export const wordCloudTermRules = pgTable(
+  "word_cloud_term_rules",
+  {
+    id: id(),
+    sessionQuestionId: uuid("session_question_id")
+      .notNull()
+      .references(() => sessionQuestions.id, { onDelete: "cascade" }),
+    termKey: text("term_key").notNull(),
+    label: text("label").notNull(),
+    action: wordCloudTermAction("action").notNull(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("word_cloud_rule_uq").on(t.sessionQuestionId, t.termKey)],
 );
 
 export const answerOptionSelections = pgTable(

@@ -4,8 +4,9 @@
  */
 import { z } from "zod";
 import { CHART_TYPES } from "./charts/catalog";
+import { DEFAULT_WORD_CLOUD_DISPLAY, DEFAULT_WORD_CLOUD_RULES, WC_ANIMATIONS, WC_BACKGROUNDS, WC_MODES, WC_STYLES } from "./wordcloud";
 
-export const QUESTION_TYPES = ["PERFIL", "OPINIAO", "CONHECIMENTO", "MULTIPLA_CORRETA", "SIM_NAO", "ESCALA", "NPS"] as const;
+export const QUESTION_TYPES = ["PERFIL", "OPINIAO", "CONHECIMENTO", "MULTIPLA_CORRETA", "SIM_NAO", "ESCALA", "NPS", "NUVEM_PALAVRAS"] as const;
 export type QuestionType = (typeof QUESTION_TYPES)[number];
 
 export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
@@ -16,12 +17,18 @@ export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
   SIM_NAO: "Enquete Sim/Não",
   ESCALA: "Escala de avaliação",
   NPS: "NPS (0 a 10)",
+  NUVEM_PALAVRAS: "Nuvem de palavras",
 };
 
 export const SCORED_TYPES: QuestionType[] = ["CONHECIMENTO", "MULTIPLA_CORRETA"];
 export const NUMERIC_TYPES: QuestionType[] = ["ESCALA", "NPS"];
 export const isScoredType = (t: QuestionType) => SCORED_TYPES.includes(t);
 export const isNumericType = (t: QuestionType) => NUMERIC_TYPES.includes(t);
+/** Respostas em texto livre (sem alternativas nem escala). */
+export const TEXT_TYPES: QuestionType[] = ["NUVEM_PALAVRAS"];
+export const isTextType = (t: QuestionType) => TEXT_TYPES.includes(t);
+/** Tipos cujas respostas são alternativas (não escala, não texto). */
+export const isOptionType = (t: QuestionType) => !isNumericType(t) && !isTextType(t);
 
 export const SESSION_STATUSES = ["RASCUNHO", "AGENDADA", "AGUARDANDO", "AO_VIVO", "PAUSADA", "ENCERRADA", "CANCELADA"] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
@@ -103,6 +110,39 @@ export const DEFAULT_SCORING: ScoringConfig = {
   wrongPenalty: 0,
 };
 
+/* -------------------------------------------------------------- nuvem de palavras */
+const termText = z.string().trim().min(1).max(60);
+/** Regras de coleta e agrupamento — fazem parte da versão da pergunta. */
+export const wordCloudConfigSchema = z.object({
+  mode: z.enum(WC_MODES).default(DEFAULT_WORD_CLOUD_RULES.mode),
+  maxWords: z.number().int().min(1, "Mínimo de 1 palavra").max(10, "Máximo de 10 palavras").default(DEFAULT_WORD_CLOUD_RULES.maxWords),
+  maxEntries: z.number().int().min(1, "Mínimo de 1 envio").max(20, "Máximo de 20 envios").default(DEFAULT_WORD_CLOUD_RULES.maxEntries),
+  maxChars: z.number().int().min(10, "Mínimo de 10 caracteres").max(200, "Máximo de 200 caracteres").default(DEFAULT_WORD_CLOUD_RULES.maxChars),
+  allowRepeat: z.boolean().default(DEFAULT_WORD_CLOUD_RULES.allowRepeat),
+  requireApproval: z.boolean().default(DEFAULT_WORD_CLOUD_RULES.requireApproval),
+  profanityFilter: z.boolean().default(DEFAULT_WORD_CLOUD_RULES.profanityFilter),
+  groupEquivalent: z.boolean().default(DEFAULT_WORD_CLOUD_RULES.groupEquivalent),
+  ignoreCase: z.boolean().default(DEFAULT_WORD_CLOUD_RULES.ignoreCase),
+  foldAccents: z.boolean().default(DEFAULT_WORD_CLOUD_RULES.foldAccents),
+  ignoreStopwords: z.boolean().default(DEFAULT_WORD_CLOUD_RULES.ignoreStopwords),
+  blockedWords: z.array(termText).max(200, "Máximo de 200 termos bloqueados").default([]),
+  synonyms: z
+    .array(z.object({ canonical: termText, variants: z.array(termText).min(1, "Informe ao menos uma variação").max(30) }))
+    .max(100, "Máximo de 100 grupos de sinônimos")
+    .default([]),
+});
+export type WordCloudConfig = z.infer<typeof wordCloudConfigSchema>;
+
+/** Aparência da nuvem — fica na configuração do gráfico (pode mudar durante a palestra). */
+export const wordCloudDisplaySchema = z.object({
+  style: z.enum(WC_STYLES).default(DEFAULT_WORD_CLOUD_DISPLAY.style),
+  background: z.enum(WC_BACKGROUNDS).default(DEFAULT_WORD_CLOUD_DISPLAY.background),
+  animation: z.enum(WC_ANIMATIONS).default(DEFAULT_WORD_CLOUD_DISPLAY.animation),
+  showFrequency: z.boolean().default(DEFAULT_WORD_CLOUD_DISPLAY.showFrequency),
+  maxTerms: z.number().int().min(10, "Mínimo de 10 termos").max(150, "Máximo de 150 termos").default(DEFAULT_WORD_CLOUD_DISPLAY.maxTerms),
+});
+export type WordCloudDisplayConfig = z.infer<typeof wordCloudDisplaySchema>;
+
 /* -------------------------------------------------------------- gráfico */
 export const chartConfigSchema = z.object({
   type: z.enum(CHART_TYPES),
@@ -113,6 +153,8 @@ export const chartConfigSchema = z.object({
   sortDesc: z.boolean().default(false),
   /** Pergunta de perfil usada para cruzamento (barras agrupadas, Sankey, heatmap...). */
   crossQuestionId: z.uuid().nullable().optional().transform((v) => v ?? null),
+  /** Aparência da Nuvem de Palavras (somente nesse tipo). */
+  wordCloud: wordCloudDisplaySchema.nullable().optional().transform((v) => v ?? null),
 });
 export type ChartConfig = z.infer<typeof chartConfigSchema>;
 
@@ -148,6 +190,8 @@ export const questionInputSchema = z
     resultsMode: z.enum(RESULTS_MODES).default("MANUAL"),
     explanation: optText(2000),
     options: z.array(optionInputSchema).max(20).default([]),
+    /** Regras da Nuvem de Palavras (somente nesse tipo). */
+    wordCloud: wordCloudConfigSchema.nullable().optional().transform((v) => v ?? null),
   })
   .superRefine((q, ctx) => {
     const issue = (message: string, path: (string | number)[] = []) => ctx.addIssue({ code: "custom", message, path });
@@ -188,7 +232,14 @@ export const questionInputSchema = z
         if (q.options.length > 0) issue("NPS não usa alternativas", ["options"]);
         if (q.scoring) issue("NPS não possui pontuação", ["scoring"]);
         break;
+      case "NUVEM_PALAVRAS":
+        if (!q.wordCloud) issue("Configure as regras da nuvem de palavras", ["wordCloud"]);
+        if (q.options.length > 0) issue("A nuvem de palavras não usa alternativas", ["options"]);
+        if (q.scoring) issue("A nuvem de palavras não possui pontuação", ["scoring"]);
+        if (q.chart.type !== "wordcloud") issue("A nuvem de palavras usa a visualização de nuvem", ["chart", "type"]);
+        break;
     }
+    if (q.type !== "NUVEM_PALAVRAS" && q.chart.type === "wordcloud") issue("A visualização de nuvem é exclusiva da Nuvem de Palavras", ["chart", "type"]);
     if (q.options.length > 0) {
       if (q.minSelections > q.maxSelections) issue("O mínimo de seleções não pode ser maior que o máximo", ["minSelections"]);
       if (q.maxSelections > q.options.length) issue("O máximo de seleções excede o número de alternativas", ["maxSelections"]);
@@ -210,6 +261,7 @@ export const STRUCTURAL_QUESTION_FIELDS = [
   "scaleMin",
   "scaleMax",
   "scoring",
+  "wordCloud",
 ] as const;
 
 /* -------------------------------------------------------------- cadastro do participante */
@@ -369,6 +421,14 @@ export const answerInputSchema = z.object({
   value: z.number().int().min(0).max(10).nullable().optional().transform((v) => v ?? null),
 });
 export type AnswerInput = z.infer<typeof answerInputSchema>;
+
+/** Envio de texto para a Nuvem de Palavras (o servidor limpa e valida pelas regras da pergunta). */
+export const wordCloudEntryInputSchema = z.object({
+  sessionQuestionId: z.uuid(),
+  idempotencyKey: z.string().min(8).max(64).regex(/^[A-Za-z0-9_-]+$/),
+  text: z.string().max(400, "Resposta muito longa"),
+});
+export type WordCloudEntryInput = z.infer<typeof wordCloudEntryInputSchema>;
 
 export const satisfactionInputSchema = z.object({ value: z.enum(["POSITIVO", "NEGATIVO"]) });
 

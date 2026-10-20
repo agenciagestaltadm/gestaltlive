@@ -10,6 +10,7 @@ import type { ResultsDTO, ResultCategory } from "@shared/types";
 import type { ChartConfig } from "@shared/schemas";
 import { getSnapshot } from "./snapshots";
 import type { SessionQuestionRow } from "./sessions";
+import { wordCloudResults, wordCloudRespondents } from "./wordcloud";
 
 interface AnswerRow {
   id: string;
@@ -59,6 +60,26 @@ export async function computeResults(tx: Tx, sq: SessionQuestionRow, opts: Resul
   const [qRow] = await tx.select({ chart: questions.chart }).from(questions).where(eq(questions.id, sq.questionId));
   const chart = (qRow?.chart ?? snap.chart) as ChartConfig;
   const [pc] = await tx.select({ n: count() }).from(sessionParticipants).where(eq(sessionParticipants.sessionId, sq.sessionId));
+  if (snap.type === "NUVEM_PALAVRAS") {
+    // texto livre: categorias = termos mais citados (tabela acessível, relatórios e barras usam o mesmo formato)
+    const wc = await wordCloudResults(tx, sq, snap.wordCloud, chart);
+    return {
+      sessionQuestionId: sq.id,
+      questionType: snap.type,
+      title: snap.title,
+      multiSelect: false,
+      totals: { participants: Number(pc.n), respondents: wc.totals.respondents, selections: wc.totals.termOccurrences },
+      categories: wc.terms.map((t) => ({ id: t.key, label: t.label, color: null, count: t.count, pct: t.pct, isCorrect: null, avgResponseMs: null })),
+      numeric: null,
+      correctRevealed: false,
+      accuracyPct: null,
+      timeline: { bucketMs: 0, points: [] },
+      scatter: null,
+      cross: null,
+      wordCloud: wc,
+      generatedAt: new Date().toISOString(),
+    };
+  }
   const answers = await loadAnswers(tx, sq.id);
   const numeric = snap.type === "ESCALA" || snap.type === "NPS";
   const revealed = !!sq.correctRevealedAt;
@@ -218,10 +239,11 @@ export function resultsPublic(sq: SessionQuestionRow): boolean {
   return sq.state !== "PRONTA" && !!sq.resultsShownAt;
 }
 
+/** Quem respondeu: respostas aceitas (alternativas/escala) ou participantes com envio aprovado (nuvem de palavras). */
 export async function answeredCount(tx: Tx, sqId: string) {
   const [r] = await tx
     .select({ n: count() })
     .from(participantAnswers)
     .where(and(eq(participantAnswers.sessionQuestionId, sqId), eq(participantAnswers.status, "ACCEPTED")));
-  return Number(r.n);
+  return Number(r.n) + ((await wordCloudRespondents(tx, [sqId])).get(sqId) ?? 0);
 }

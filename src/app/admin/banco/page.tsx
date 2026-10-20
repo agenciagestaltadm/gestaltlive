@@ -2,7 +2,7 @@
 /** Banco de questões da organização: perguntas reutilizáveis entre eventos. */
 import { useState } from "react";
 import { Copy, EllipsisVertical, Library, Pencil, Plus, Search, Trash2 } from "lucide-react";
-import type { QuestionType } from "@shared/schemas";
+import { isOptionType, type QuestionType } from "@shared/schemas";
 import { admin } from "@/lib/api";
 import { useAction, useApi } from "@/lib/hooks";
 import { fmtDate, fmtInt } from "@/lib/utils";
@@ -136,7 +136,7 @@ export default function BankPage() {
                   >
                     {q.title}
                   </button>
-                  {!["ESCALA", "NPS"].includes(q.type) && q.options.length > 0 && (
+                  {isOptionType(q.type) && q.options.length > 0 && (
                     <p className="line-clamp-2 text-sm text-muted-foreground">
                       {q.options.map((o, i) => (
                         <span key={o.id}>

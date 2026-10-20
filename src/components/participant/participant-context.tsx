@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import type {
   LeaderboardDTO,
   MyStandingDTO,
+  MyWordCloudDTO,
   ParticipantStateDTO,
   PodiumDTO,
   PresentationDTO,
@@ -31,6 +32,8 @@ interface Ctx {
   answeredCount: number | null;
   submitting: boolean;
   submitAnswer: (sq: PublicQuestionDTO, optionIds: string[], value: number | null) => Promise<boolean>;
+  /** Envio para a Nuvem de Palavras (reenvio seguro: mesma resposta → mesma chave). */
+  submitWord: (sq: PublicQuestionDTO, text: string) => Promise<boolean>;
   vote: (v: "POSITIVO" | "NEGATIVO") => Promise<void>;
   voting: boolean;
   reload: () => Promise<void>;
@@ -106,7 +109,13 @@ export function ParticipantProvider({ code, children }: { code: string; children
     () => ({
       [RT.questionOpened]: (q: PublicQuestionDTO) => {
         setAnsweredCount(0);
-        patch((s) => ({ ...s, activeQuestion: q, myAnswer: null, results: null }));
+        patch((s) => ({
+          ...s,
+          activeQuestion: q,
+          myAnswer: null,
+          results: null,
+          myWordCloud: q.type === "NUVEM_PALAVRAS" ? { entries: [], remaining: q.wordCloud?.maxEntries ?? 1 } : null,
+        }));
         if (soundOn) playSound("open");
         if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate?.(80);
       },
@@ -153,6 +162,12 @@ export function ParticipantProvider({ code, children }: { code: string; children
           return keep ? { ...s, presentation: p } : { ...s, presentation: p, activeQuestion: null, myAnswer: null, results: null };
         }),
       [RT.prizesRevealed]: (d: { podium: PodiumDTO }) => patch((s) => ({ ...s, podium: d.podium })),
+      // nuvem de palavras: envio feito em outra aba ou moderado pelo palestrante
+      [RT.wordCloudEntry]: (d: { sessionQuestionId?: string; entry: MyWordCloudDTO["entries"][number]; remaining?: number }) =>
+        patch((s) => {
+          if (!s.myWordCloud || (d.sessionQuestionId && s.activeQuestion?.sessionQuestionId !== d.sessionQuestionId)) return s;
+          return { ...s, myWordCloud: mergeEntry(s.myWordCloud, d.entry, d.remaining) };
+        }),
       [RT.answerAccepted]: (a: { sessionQuestionId: string; optionIds: string[]; value: number | null; revision: number }) =>
         patch((s) =>
           s.activeQuestion?.sessionQuestionId === a.sessionQuestionId
@@ -207,6 +222,36 @@ export function ParticipantProvider({ code, children }: { code: string; children
     [api, patch, reload, soundOn],
   );
 
+  const submitWord = useCallback(
+    async (q: PublicQuestionDTO, text: string) => {
+      const sig = `${q.sessionQuestionId}:wc:${text.trim().toLocaleLowerCase("pt-BR")}`;
+      let key = keys.current.get(sig);
+      if (!key) {
+        key = uid().replace(/[^A-Za-z0-9_-]/g, "");
+        keys.current.set(sig, key);
+      }
+      setSubmitting(true);
+      try {
+        const r = await api.word<{ outcome: "ACEITA" | "PENDENTE" | "DUPLICADA"; entry: MyWordCloudDTO["entries"][number]; remaining: number }>({
+          sessionQuestionId: q.sessionQuestionId,
+          text,
+          idempotencyKey: key,
+        });
+        patch((s) => (s.activeQuestion?.sessionQuestionId === q.sessionQuestionId ? { ...s, myWordCloud: mergeEntry(s.myWordCloud ?? { entries: [], remaining: 0 }, r.entry, r.remaining) } : s));
+        if (soundOn) playSound("sent");
+        return true;
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Não foi possível enviar.");
+        if (e instanceof ApiError && e.code !== "TERMO_NAO_PERMITIDO" && e.code !== "PALAVRAS_DEMAIS" && e.code !== "MUITO_LONGA") keys.current.delete(sig);
+        if (e instanceof ApiError && ["PERGUNTA_FECHADA", "TEMPO_ESGOTADO", "LIMITE_DE_ENVIOS"].includes(e.code ?? "")) void reload();
+        return false;
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [api, patch, reload, soundOn],
+  );
+
   const vote = useCallback(
     async (v: "POSITIVO" | "NEGATIVO") => {
       const previous = state?.satisfaction ?? null;
@@ -237,8 +282,17 @@ export function ParticipantProvider({ code, children }: { code: string; children
 
   if (!cred) return null;
   return (
-    <PCtx.Provider value={{ code, cred, state, status, answeredCount, submitting, submitAnswer, vote, voting, reload, api, soundOn, setSoundOn }}>
+    <PCtx.Provider value={{ code, cred, state, status, answeredCount, submitting, submitAnswer, submitWord, vote, voting, reload, api, soundOn, setSoundOn }}>
       {children}
     </PCtx.Provider>
   );
+}
+
+/** Inclui/atualiza um envio na lista do participante (sem duplicar em reenvios ou eventos repetidos). */
+function mergeEntry(cur: MyWordCloudDTO, entry: MyWordCloudDTO["entries"][number], remaining?: number): MyWordCloudDTO {
+  const exists = cur.entries.some((e) => e.id === entry.id);
+  const entries = (exists ? cur.entries.map((e) => (e.id === entry.id ? entry : e)) : [...cur.entries, entry]).filter((e) => e.status !== "REJEITADA");
+  // envio rejeitado pela moderação libera um envio
+  const freed = remaining === undefined && exists && entry.status === "REJEITADA" ? 1 : 0;
+  return { entries, remaining: remaining ?? cur.remaining + freed };
 }

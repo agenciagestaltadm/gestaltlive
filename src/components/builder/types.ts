@@ -1,5 +1,5 @@
 /** Tipos das perguntas como devolvidas pela API administrativa (listagem de evento e banco). */
-import type { ChartConfig, QuestionType, ResultsMode, ScoringConfig } from "@shared/schemas";
+import type { ChartConfig, QuestionType, ResultsMode, ScoringConfig, WordCloudConfig } from "@shared/schemas";
 
 export interface QuestionOptionRow {
   id: string;
@@ -34,6 +34,8 @@ export interface QuestionRow {
   timeLimitSec: number | null;
   allowEdit: boolean;
   scoring: ScoringConfig | null;
+  /** Regras da Nuvem de Palavras (somente nesse tipo); a aparência fica em `chart.wordCloud`. */
+  wordCloud: WordCloudConfig | null;
   chart: ChartConfig;
   resultsMode: ResultsMode;
   explanation: string | null;

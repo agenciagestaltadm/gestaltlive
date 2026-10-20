@@ -9,7 +9,7 @@ import {
   type PresentationItemDTO,
   type PresentationItemType,
 } from "@shared/presentations";
-import { isScoredType } from "@shared/schemas";
+import { isScoredType, isTextType } from "@shared/schemas";
 import type { QuestionRow } from "@/components/builder/types";
 
 /** GET /presentations?orgId= */
@@ -126,8 +126,9 @@ export function questionItem(type: "QUESTION" | "POLL" | "QUIZ" | "CHART", q: Qu
   return newItem(type, { questionId: q.id, question: questionRef(q) });
 }
 
-/** Tipo de item sugerido para uma pergunta (pontuadas → Quiz; Sim/Não → Enquete). */
+/** Tipo de item sugerido para uma pergunta (pontuadas → Quiz; Sim/Não → Enquete; nuvem de palavras → Pergunta). */
 export function suggestedQuestionItemType(q: Pick<QuestionRow, "type">): "QUESTION" | "POLL" | "QUIZ" {
+  if (isTextType(q.type)) return "QUESTION";
   if (isScoredType(q.type)) return "QUIZ";
   if (q.type === "SIM_NAO") return "POLL";
   return "QUESTION";

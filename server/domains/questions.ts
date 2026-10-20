@@ -5,7 +5,7 @@
 import { and, asc, count, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import type { AppContext } from "../context";
 import type { Tx } from "../db/client";
-import { events, participantAnswers, questionOptions, questionVersions, questions, sessionQuestions } from "../db/schema";
+import { events, participantAnswers, questionOptions, questionVersions, questions, sessionQuestions, wordCloudEntries } from "../db/schema";
 import type { Actor } from "../auth/auth";
 import { authorize } from "../auth/permissions";
 import { badRequest, conflict, notFound } from "../lib/errors";
@@ -15,7 +15,9 @@ import {
   questionInputSchema,
   questionnaireExportSchema,
   scoringSchema,
+  wordCloudConfigSchema,
   type QuestionInput,
+  type WordCloudConfig,
   type QuestionnaireExport,
   type QuestionType,
   type ScoringConfig,
@@ -48,6 +50,8 @@ export interface QuestionSnapshot {
   chart: ChartConfig;
   resultsMode: ResultsMode;
   explanation: string | null;
+  /** Regras da Nuvem de Palavras (somente nesse tipo). */
+  wordCloud: WordCloudConfig | null;
   options: { id: string; position: number; label: string; imageUrl: string | null; isCorrect: boolean; color: string | null }[];
 }
 
@@ -72,6 +76,7 @@ export function buildSnapshot(q: QuestionRow, opts: OptionRow[]): QuestionSnapsh
     chart: q.chart as ChartConfig,
     resultsMode: q.resultsMode,
     explanation: q.explanation,
+    wordCloud: q.wordCloud ?? null,
     options: [...opts]
       .sort((a, b) => a.position - b.position)
       .map((o) => ({ id: o.id, position: o.position, label: o.label, imageUrl: o.imageUrl, isCorrect: o.isCorrect, color: o.color })),
@@ -99,6 +104,7 @@ export function rowToInput(q: QuestionRow, opts: OptionRow[]): QuestionInput {
     chart: q.chart as ChartConfig,
     resultsMode: q.resultsMode,
     explanation: q.explanation,
+    wordCloud: q.wordCloud ?? null,
     options: [...opts]
       .sort((a, b) => a.position - b.position)
       .map((o) => ({ id: o.id, label: o.label, imageUrl: o.imageUrl, isCorrect: o.isCorrect, color: o.color })),
@@ -132,6 +138,7 @@ async function optionsOf(tx: Tx, questionIds: string[]) {
   return map;
 }
 
+/** Interações por pergunta: respostas de alternativa/escala + envios da Nuvem de Palavras (todas as sessões). */
 async function answerCounts(tx: Tx, questionIds: string[]) {
   const map = new Map<string, number>();
   if (questionIds.length === 0) return map;
@@ -142,6 +149,13 @@ async function answerCounts(tx: Tx, questionIds: string[]) {
     .where(inArray(sessionQuestions.questionId, questionIds))
     .groupBy(sessionQuestions.questionId);
   for (const r of rows) map.set(r.questionId, Number(r.n));
+  const texts = await tx
+    .select({ questionId: sessionQuestions.questionId, n: count(wordCloudEntries.id) })
+    .from(sessionQuestions)
+    .innerJoin(wordCloudEntries, eq(wordCloudEntries.sessionQuestionId, sessionQuestions.id))
+    .where(inArray(sessionQuestions.questionId, questionIds))
+    .groupBy(sessionQuestions.questionId);
+  for (const r of texts) map.set(r.questionId, (map.get(r.questionId) ?? 0) + Number(r.n));
   return map;
 }
 
@@ -191,6 +205,21 @@ function normalizeInput(raw: unknown): QuestionInput {
     r.minSelections = 1;
     r.maxSelections = 1;
   }
+  if (r && r.type === "NUVEM_PALAVRAS") {
+    // texto livre: sem alternativas, escala ou pontuação; regras e aparência com valores padrão
+    r.options = [];
+    r.minSelections = 1;
+    r.maxSelections = 1;
+    r.scaleMin = null;
+    r.scaleMax = null;
+    r.scoring = null;
+    r.wordCloud = r.wordCloud ?? {};
+    const chart = (r.chart ?? {}) as Record<string, unknown>;
+    r.chart = { ...chart, type: "wordcloud", crossQuestionId: null, wordCloud: chart.wordCloud ?? {} };
+  } else if (r) {
+    r.wordCloud = null;
+    if (r.chart && typeof r.chart === "object") r.chart = { ...(r.chart as object), wordCloud: null };
+  }
   return questionInputSchema.parse(r);
 }
 
@@ -222,6 +251,7 @@ async function insertQuestion(tx: Tx, orgId: string, eventId: string | null, inp
       chart: input.chart,
       resultsMode: input.resultsMode,
       explanation: input.explanation,
+      wordCloud: input.wordCloud,
       currentVersion: 1,
     })
     .returning();
@@ -294,6 +324,7 @@ export async function createQuestion(ctx: AppContext, actor: Actor, eventId: str
 function structuralSignature(input: QuestionInput) {
   // o jsonb do Postgres não preserva a ordem das chaves: normaliza a pontuação campo a campo
   const s = input.scoring ? scoringSchema.parse(input.scoring) : null;
+  const w = input.wordCloud ? wordCloudConfigSchema.parse(input.wordCloud) : null;
   return JSON.stringify({
     type: input.type,
     minSelections: input.minSelections,
@@ -302,6 +333,8 @@ function structuralSignature(input: QuestionInput) {
     scaleMax: input.scaleMax,
     scoring: s && [s.basePoints, s.weight, s.speedBonusEnabled, s.speedBonusMax, s.wrongPenalty],
     options: input.options.map((o) => ({ id: o.id ?? null, isCorrect: o.isCorrect })),
+    // nuvem de palavras: regras de coleta travam; sinônimos, bloqueios e aparência continuam editáveis
+    wordCloud: w && [w.mode, w.maxWords, w.maxEntries, w.maxChars, w.allowRepeat, w.requireApproval],
   });
 }
 
@@ -322,7 +355,7 @@ export async function updateQuestion(ctx: AppContext, actor: Actor, id: string, 
       const after = structuralSignature(input);
       if (before !== after) {
         throw conflict(
-          "Esta pergunta já recebeu respostas. Tipo, alternativas, gabarito, seleções, escala e pontuação não podem ser alterados. Duplique a pergunta para criar uma variação.",
+          "Esta pergunta já recebeu respostas. Tipo, alternativas, gabarito, seleções, escala, pontuação e regras de envio da nuvem não podem ser alterados. Duplique a pergunta para criar uma variação.",
           "PERGUNTA_BLOQUEADA",
         );
       }
@@ -371,6 +404,7 @@ export async function updateQuestion(ctx: AppContext, actor: Actor, id: string, 
         chart: input.chart,
         resultsMode: input.resultsMode,
         explanation: input.explanation,
+        wordCloud: input.wordCloud,
         currentVersion: nextVersion,
         updatedAt: ctx.now(),
       })
@@ -513,6 +547,7 @@ export async function exportQuestionnaire(tx: Tx, eventId: string, name: string,
       chart: { ...q.chart, crossQuestionId: null },
       resultsMode: q.resultsMode,
       explanation: q.explanation,
+      wordCloud: q.wordCloud,
       options: q.options.map((o) => ({ label: o.label, imageUrl: o.imageUrl, isCorrect: o.isCorrect, color: o.color })),
     })),
   };

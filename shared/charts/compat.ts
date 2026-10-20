@@ -12,6 +12,8 @@
  * - Dispersão exige duas variáveis numéricas (nota × tempo de resposta) — apenas escala e NPS.
  * - Hierarquias (sunburst, pizza multinível) apenas quando a hierarquia existe de fato:
  *   NPS (grupo → nota), conhecimento (certa/errada → alternativa) ou segmento → resposta.
+ * - Nuvem de palavras: respostas em texto livre só têm uma visualização (a nuvem), e a nuvem não se aplica
+ *   a perguntas de alternativas ou escala.
  */
 import { CHART_TYPES, type ChartType } from "./catalog";
 import type { QuestionType } from "../schemas";
@@ -44,6 +46,8 @@ export function checkChart(type: ChartType, ctx: ChartContext): ChartCompatibili
   const single = !ctx.multiSelect;
   const no = (reason: string): ChartCompatibility => ({ type, compatible: false, reason });
   const ok: ChartCompatibility = { type, compatible: true };
+  if (ctx.questionType === "NUVEM_PALAVRAS") return type === "wordcloud" ? ok : no("A Nuvem de Palavras usa a visualização de nuvem.");
+  if (type === "wordcloud") return no("Exclusiva da Nuvem de Palavras (respostas em texto livre).");
   const partOfWhole = () => {
     if (!single) return no("Gráfico parte-do-todo não representa múltipla seleção corretamente.");
     if (n < 2) return no("Requer pelo menos 2 categorias.");
@@ -137,6 +141,8 @@ export function isChartCompatible(type: ChartType, ctx: ChartContext): boolean {
 
 export function defaultChartFor(ctx: ChartContext): ChartType {
   switch (ctx.questionType) {
+    case "NUVEM_PALAVRAS":
+      return "wordcloud";
     case "SIM_NAO":
       return "donut";
     case "NPS":

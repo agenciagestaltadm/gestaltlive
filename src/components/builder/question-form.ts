@@ -10,11 +10,13 @@ import {
   DEFAULT_SCORING,
   isNumericType,
   isScoredType,
+  isTextType,
   questionInputSchema,
   type QuestionType,
   type ResultsMode,
   type ScoringConfig,
 } from "@shared/schemas";
+import { DEFAULT_WORD_CLOUD_DISPLAY, DEFAULT_WORD_CLOUD_RULES, type WordCloudDisplay, type WordCloudRules } from "@shared/wordcloud";
 import type { ChartType } from "@shared/charts/catalog";
 import { chartContextForQuestion, checkChart, compatibleCharts, defaultChartFor, type ChartContext } from "@shared/charts/compat";
 import type { QuestionRow } from "./types";
@@ -35,6 +37,8 @@ export interface ChartForm {
   showLegend: boolean;
   sortDesc: boolean;
   crossQuestionId: string | null;
+  /** Aparência da Nuvem de Palavras (enviada somente nesse tipo). */
+  wordCloud: WordCloudDisplay;
 }
 
 export interface FormValues {
@@ -59,7 +63,12 @@ export interface FormValues {
   resultsMode: ResultsMode;
   explanation: string;
   options: OptionForm[];
+  /** Regras de coleta da Nuvem de Palavras (enviadas somente nesse tipo). */
+  wordCloud: WordCloudRules;
 }
+
+export const defaultWordCloudRules = (): WordCloudRules => ({ ...DEFAULT_WORD_CLOUD_RULES, blockedWords: [], synonyms: [] });
+export const defaultWordCloudDisplay = (): WordCloudDisplay => ({ ...DEFAULT_WORD_CLOUD_DISPLAY });
 
 export type QuestionPayload = z.input<typeof questionInputSchema>;
 
@@ -69,13 +78,13 @@ export const blankOption = (label = ""): OptionForm => ({ label, imageUrl: null,
 
 /** Quantidade mínima de alternativas exigida pelo servidor. */
 export function minOptionsFor(t: QuestionType) {
-  if (isNumericType(t)) return 0;
+  if (isNumericType(t) || isTextType(t)) return 0;
   if (t === "MULTIPLA_CORRETA") return 3;
   return 2;
 }
 
 /** Tipos em que a resposta é sempre única (o servidor força 1/1). */
-export const isForcedSingle = (t: QuestionType) => t === "CONHECIMENTO" || t === "SIM_NAO" || isNumericType(t);
+export const isForcedSingle = (t: QuestionType) => t === "CONHECIMENTO" || t === "SIM_NAO" || isNumericType(t) || isTextType(t);
 
 export function chartContextFor(v: Pick<FormValues, "type" | "options" | "maxSelections" | "scaleMin" | "scaleMax">, hasCross: boolean): ChartContext {
   const numeric = isNumericType(v.type);
@@ -99,7 +108,7 @@ export function pickChart(ctx: ChartContext): ChartType {
 
 function defaultOptions(t: QuestionType): OptionForm[] {
   if (t === "SIM_NAO") return [blankOption("Sim"), blankOption("Não")];
-  if (isNumericType(t)) return [];
+  if (isNumericType(t) || isTextType(t)) return [];
   const n = t === "CONHECIMENTO" || t === "MULTIPLA_CORRETA" ? 4 : 3;
   return Array.from({ length: n }, () => blankOption());
 }
@@ -124,10 +133,12 @@ export function emptyForm(type: QuestionType, resultsMode: ResultsMode = "MANUAL
     timeLimitSec: isScoredType(type) ? 30 : null,
     allowEdit: false,
     scoring: { ...DEFAULT_SCORING },
-    chart: { type: "bar_horizontal", colors: null, showPercent: true, showValues: true, showLegend: true, sortDesc: false, crossQuestionId: null },
-    resultsMode,
+    chart: { type: "bar_horizontal", colors: null, showPercent: true, showValues: true, showLegend: true, sortDesc: false, crossQuestionId: null, wordCloud: defaultWordCloudDisplay() },
+    // nuvem de palavras: a graça é ver a nuvem se formando — resultados ao vivo por padrão
+    resultsMode: isTextType(type) ? "AO_VIVO" : resultsMode,
     explanation: "",
     options,
+    wordCloud: defaultWordCloudRules(),
   };
   base.chart.type = pickChart(chartContextFor(base, false));
   return base;
@@ -160,10 +171,17 @@ export function fromRow(q: QuestionRow): FormValues {
       showLegend: q.chart.showLegend ?? true,
       sortDesc: q.chart.sortDesc ?? false,
       crossQuestionId: q.chart.crossQuestionId ?? null,
+      wordCloud: { ...DEFAULT_WORD_CLOUD_DISPLAY, ...(q.chart.wordCloud ?? {}) },
     },
     resultsMode: q.resultsMode,
     explanation: q.explanation ?? "",
     options: q.options.map((o) => ({ id: o.id, label: o.label, imageUrl: o.imageUrl, isCorrect: o.isCorrect, color: o.color })),
+    wordCloud: {
+      ...DEFAULT_WORD_CLOUD_RULES,
+      ...(q.wordCloud ?? {}),
+      blockedWords: [...(q.wordCloud?.blockedWords ?? [])],
+      synonyms: (q.wordCloud?.synonyms ?? []).map((g) => ({ canonical: g.canonical, variants: [...g.variants] })),
+    },
   };
 }
 
@@ -181,8 +199,9 @@ export function toPayload(v: FormValues, ctx: PayloadContext): QuestionPayload {
   const type = locked && o ? o.type : v.type;
   const numeric = isNumericType(type);
   const scored = isScoredType(type);
+  const text = isTextType(type);
 
-  let options = numeric
+  let options = numeric || text
     ? []
     : v.options.map((op) => ({
         ...(op.id ? { id: op.id } : {}),
@@ -197,6 +216,7 @@ export function toPayload(v: FormValues, ctx: PayloadContext): QuestionPayload {
   let scaleMin: number | null = numeric ? (type === "NPS" ? 0 : v.scaleMin) : null;
   let scaleMax: number | null = numeric ? (type === "NPS" ? 10 : v.scaleMax) : null;
   let scoring: ScoringConfig | null = scored ? { ...v.scoring } : null;
+  let wordCloud: WordCloudRules | null = text ? cleanWordCloudRules(v.wordCloud) : null;
 
   if (locked && o) {
     // campos estruturais não podem mudar: envia exatamente o que está gravado
@@ -205,6 +225,11 @@ export function toPayload(v: FormValues, ctx: PayloadContext): QuestionPayload {
     scaleMin = o.scaleMin;
     scaleMax = o.scaleMax;
     scoring = o.scoring;
+    // nuvem: regras de coleta ficam como gravadas; sinônimos, bloqueios e agrupamento seguem editáveis
+    if (wordCloud && o.wordCloud) {
+      const w = o.wordCloud;
+      wordCloud = { ...wordCloud, mode: w.mode, maxWords: w.maxWords, maxEntries: w.maxEntries, maxChars: w.maxChars, allowRepeat: w.allowRepeat, requireApproval: w.requireApproval };
+    }
     const byId = new Map(o.options.map((x) => [x.id, x]));
     options = options.map((op) => ("id" in op && op.id && byId.has(op.id) ? { ...op, isCorrect: byId.get(op.id)!.isCorrect } : op));
   }
@@ -224,20 +249,35 @@ export function toPayload(v: FormValues, ctx: PayloadContext): QuestionPayload {
     scaleMinLabel: numeric ? v.scaleMinLabel || null : null,
     scaleMaxLabel: numeric ? v.scaleMaxLabel || null : null,
     timeLimitSec: v.timeLimitSec ?? null,
-    allowEdit: v.allowEdit,
+    allowEdit: text ? false : v.allowEdit,
     scoring,
     chart: {
-      type: v.chart.type,
+      type: text ? "wordcloud" : v.chart.type,
       colors: numeric && v.chart.colors && v.chart.colors.length ? v.chart.colors : null,
       showPercent: v.chart.showPercent,
       showValues: v.chart.showValues,
       showLegend: v.chart.showLegend,
       sortDesc: v.chart.sortDesc,
-      crossQuestionId: ctx.allowCross ? v.chart.crossQuestionId || null : null,
+      crossQuestionId: ctx.allowCross && !text ? v.chart.crossQuestionId || null : null,
+      wordCloud: text ? { ...DEFAULT_WORD_CLOUD_DISPLAY, ...v.chart.wordCloud } : null,
     },
     resultsMode: v.resultsMode,
     explanation: v.explanation || null,
     options,
+    wordCloud,
+  };
+}
+
+/**
+ * Remove termos vazios dos bloqueios e das variações (o servidor rejeitaria). Os grupos de sinônimos são
+ * mantidos na mesma ordem para que os erros (`wordCloud.synonyms.N`) apontem para a linha certa.
+ */
+function cleanWordCloudRules(w: WordCloudRules): WordCloudRules {
+  return {
+    ...DEFAULT_WORD_CLOUD_RULES,
+    ...w,
+    blockedWords: (w.blockedWords ?? []).map((b) => b.trim()).filter(Boolean),
+    synonyms: (w.synonyms ?? []).map((g) => ({ canonical: g.canonical.trim(), variants: g.variants.map((x) => x.trim()).filter(Boolean) })),
   };
 }
 
@@ -294,6 +334,7 @@ export type EditorTab = "pergunta" | "respostas" | "pontuacao" | "grafico" | "co
 export function tabForPath(path: string): EditorTab {
   const head = path.split(".")[0];
   if (["options", "minSelections", "maxSelections", "scaleMin", "scaleMax", "scaleMinLabel", "scaleMaxLabel"].includes(head)) return "respostas";
+  if (head === "wordCloud") return "respostas";
   if (head === "scoring") return "pontuacao";
   if (head === "chart") return "grafico";
   if (["required", "timeLimitSec", "allowEdit", "resultsMode", "explanation"].includes(head)) return "comportamento";

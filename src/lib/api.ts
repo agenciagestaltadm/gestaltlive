@@ -129,6 +129,7 @@ export function participantApi(code: string, token: string) {
     state: <T,>() => call<T>("GET", "/state"),
     me: <T,>() => call<T>("GET", "/me"),
     answer: <T,>(body: unknown) => call<T>("POST", "/answers", body),
+    word: <T,>(body: unknown) => call<T>("POST", "/wordcloud", body),
     satisfaction: <T,>(value: "POSITIVO" | "NEGATIVO") => call<T>("POST", "/satisfaction", { value }),
     profile: <T,>() => call<T>("GET", "/profile"),
     updateProfile: <T,>(displayName: string) => call<T>("PATCH", "/profile", { displayName }),

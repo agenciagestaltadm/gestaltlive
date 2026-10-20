@@ -3,6 +3,7 @@
 import { BarChart3, Clock, ImageIcon, Lock, Trophy } from "lucide-react";
 import { CHART_META } from "@shared/charts/catalog";
 import { isNumericType } from "@shared/schemas";
+import { DEFAULT_WORD_CLOUD_RULES } from "@shared/wordcloud";
 import { Badge } from "@/components/ui/primitives";
 import { cn, fmtInt } from "@/lib/utils";
 import type { QuestionRow } from "./types";
@@ -14,6 +15,13 @@ export function pointsLabel(q: Pick<QuestionRow, "scoring">) {
   if (s.weight !== 1) out += ` × ${String(s.weight).replace(".", ",")}`;
   if (s.speedBonusEnabled) out += ` + até ${fmtInt(s.speedBonusMax)} de bônus`;
   return out;
+}
+
+/** Resumo das regras da nuvem: "Nuvem · até 3 palavras · 1 envio". */
+export function wordCloudLabel(q: Pick<QuestionRow, "wordCloud">) {
+  const w = { ...DEFAULT_WORD_CLOUD_RULES, ...(q.wordCloud ?? {}) };
+  const words = w.mode === "FRASE" ? `frase de até ${w.maxWords} ${w.maxWords === 1 ? "palavra" : "palavras"}` : `até ${w.maxWords} ${w.maxWords === 1 ? "palavra" : "palavras"}`;
+  return `Nuvem · ${words} · ${w.maxEntries} ${w.maxEntries === 1 ? "envio" : "envios"}${w.requireApproval ? " · com aprovação" : ""}`;
 }
 
 export function QuestionMeta({ q, className }: { q: QuestionRow; className?: string }) {
@@ -34,7 +42,9 @@ export function QuestionMeta({ q, className }: { q: QuestionRow; className?: str
         <span className="sr-only">Pontuação:</span> {pointsLabel(q)}
       </span>
       <span>
-        {numeric
+        {q.type === "NUVEM_PALAVRAS"
+          ? wordCloudLabel(q)
+          : numeric
           ? `Escala ${q.scaleMin ?? 0}–${q.scaleMax ?? 10}`
           : `${q.options.length} ${q.options.length === 1 ? "alternativa" : "alternativas"}${q.maxSelections > 1 ? ` · até ${q.maxSelections} seleções` : ""}`}
       </span>

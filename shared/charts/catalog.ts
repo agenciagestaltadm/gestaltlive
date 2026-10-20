@@ -36,6 +36,8 @@ export const CHART_TYPES = [
   "sankey",
   "gauge",
   "sunburst",
+  // texto livre
+  "wordcloud",
 ] as const;
 
 export type ChartType = (typeof CHART_TYPES)[number];
@@ -87,4 +89,5 @@ export const CHART_META: Record<ChartType, ChartMeta> = {
   sankey: { label: "Sankey", group: "ESPECIAIS", description: "Fluxo entre segmento de perfil e resposta." },
   gauge: { label: "Gauge", group: "ESPECIAIS", description: "Indicador único (média, NPS ou % de acerto)." },
   sunburst: { label: "Sunburst", group: "ESPECIAIS", description: "Hierarquia real em anéis concêntricos." },
+  wordcloud: { label: "Nuvem de palavras", group: "ESPECIAIS", description: "Palavras com tamanho proporcional à frequência (exclusiva da Nuvem de Palavras)." },
 };

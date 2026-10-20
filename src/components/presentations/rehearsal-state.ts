@@ -193,6 +193,16 @@ function publicQuestion(q: QuestionRow, sim: QuestionSim, position: number, tota
     chart: q.chart,
     correctOptionIds: sim.revealed ? q.options.filter((o) => o.isCorrect).map((o) => o.id) : null,
     explanation: sim.revealed ? q.explanation : null,
+    wordCloud: q.wordCloud
+      ? {
+          mode: q.wordCloud.mode,
+          maxWords: q.wordCloud.maxWords,
+          maxEntries: q.wordCloud.maxEntries,
+          maxChars: q.wordCloud.maxChars,
+          allowRepeat: q.wordCloud.allowRepeat,
+          requireApproval: q.wordCloud.requireApproval,
+        }
+      : null,
   };
 }
 

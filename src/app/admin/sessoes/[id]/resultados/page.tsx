@@ -3,7 +3,7 @@
 import { Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BarChart3, ChevronDown, Download, FileSpreadsheet, FileText, GitCompare, RefreshCw, ShieldCheck, ThumbsUp, Users } from "lucide-react";
+import { BarChart3, ChevronDown, Cloud, Download, FileSpreadsheet, FileText, GitCompare, RefreshCw, ShieldCheck, ThumbsUp, Users } from "lucide-react";
 import { admin } from "@/lib/api";
 import { useAction, useApi } from "@/lib/hooks";
 import { useAdmin } from "@/components/admin/admin-context";
@@ -99,7 +99,8 @@ function ResultsReport() {
     router.replace(`${pathname}${buildQuery({ ...f })}`, { scroll: false });
   };
 
-  const download = (kind: "ranking" | "respostas" | "participantes") =>
+  const hasWordCloud = data.questions.some((q) => q.type === "NUVEM_PALAVRAS");
+  const download = (kind: "ranking" | "respostas" | "participantes" | "nuvem") =>
     run(`csv-${kind}`, () => admin.download(`/sessions/${id}/export.csv?kind=${kind}`, `${fileBase}-${kind}.csv`), "Exportação concluída.");
   const downloadXlsx = () => run("xlsx", () => admin.download(`/sessions/${id}/export.xlsx`, `${fileBase}.xlsx`), "Planilha exportada.");
   const downloadPdf = () =>
@@ -155,6 +156,11 @@ function ResultsReport() {
                 <MenuItem onSelect={() => void download("participantes")}>
                   <FileSpreadsheet /> Participantes (CSV)
                 </MenuItem>
+                {hasWordCloud && (
+                  <MenuItem onSelect={() => void download("nuvem")}>
+                    <Cloud /> Nuvem de palavras (respostas)
+                  </MenuItem>
+                )}
                 <p className="flex gap-2 px-3 py-2 text-xs text-muted-foreground">
                   <ShieldCheck className="size-4 shrink-0 text-positive" />
                   E-mail e WhatsApp só saem para quem consentiu receber comunicações de marketing.

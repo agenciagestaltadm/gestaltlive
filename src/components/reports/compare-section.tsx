@@ -127,7 +127,7 @@ export function CompareSection({ eventId, theme }: { eventId: string; theme: "da
           <Card className="min-w-0">
             <CardHeader>
               <CardTitle>Comparativo por pergunta</CardTitle>
-              <CardDescription>Taxa de resposta e acerto (ou média, nas escalas) de cada pergunta em cada turma. “Não aplicada” indica que a pergunta não fez parte da turma.</CardDescription>
+              <CardDescription>Taxa de resposta e acerto (ou média, nas escalas; termos mais citados, nas nuvens de palavras) de cada pergunta em cada turma. “Não aplicada” indica que a pergunta não fez parte da turma.</CardDescription>
             </CardHeader>
             <CardContent>
               {data.byQuestion.length === 0 ? (
@@ -164,7 +164,20 @@ export function CompareSection({ eventId, theme }: { eventId: string; theme: "da
                                     <span className="text-xs text-muted-foreground">resposta </span>
                                     {fmtPct(p.responseRatePct)}
                                   </div>
-                                  {q.scored ? (
+                                  {q.type === "NUVEM_PALAVRAS" ? (
+                                    p.topTerms && p.topTerms.length > 0 ? (
+                                      <div className="font-bold" title={p.topTerms.map((t) => `${t.label} (${fmtInt(t.count)})`).join(", ")}>
+                                        <span className="text-xs font-normal text-muted-foreground">termos </span>
+                                        {p.topTerms
+                                          .slice(0, 3)
+                                          .map((t) => `${t.label} (${fmtInt(t.count)})`)
+                                          .join(", ")}
+                                        {p.topTerms.length > 3 ? "…" : ""}
+                                      </div>
+                                    ) : (
+                                      <div className="text-xs text-muted-foreground">Sem termos</div>
+                                    )
+                                  ) : q.scored ? (
                                     <div className="font-bold text-positive">
                                       <span className="text-xs font-normal text-muted-foreground">acerto </span>
                                       {fmtPct(p.accuracyPct)}

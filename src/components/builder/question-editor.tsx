@@ -11,7 +11,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Controller, get, useFieldArray, useForm, type FieldErrors, type Path } from "react-hook-form";
-import { ArrowDown, ArrowUp, Check, Copy, Info, Lock, Plus, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Copy, Info, Lock, Play, Plus, RotateCcw, Trash2, TriangleAlert, X } from "lucide-react";
 import {
   QUESTION_TYPES,
   QUESTION_TYPE_LABELS,
@@ -19,18 +19,22 @@ import {
   RESULTS_MODE_LABELS,
   isNumericType,
   isScoredType,
+  isTextType,
   type QuestionType,
   type ResultsMode,
 } from "@shared/schemas";
 import { CHART_META } from "@shared/charts/catalog";
 import { checkChart } from "@shared/charts/compat";
-import { PALETTE } from "@shared/charts/options";
+import { PALETTE, previewWordCloud } from "@shared/charts/options";
 import { scoreAnswer } from "@shared/scoring";
+import { WC_ANIMATIONS, WC_ANIMATION_LABELS, WC_MODES, WC_MODE_LABELS, WC_STYLES, WC_STYLE_LABELS, prepareEntry, type WordCloudBackground, type WordCloudMode, type WordCloudStyle } from "@shared/wordcloud";
 import { admin, ApiError } from "@/lib/api";
 import { toast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Badge, Dialog, Field, Input, Label, NativeSelect, Switch, Tabs, TabsContent, TabsList, TabsTrigger, Textarea } from "@/components/ui/primitives";
 import { ChartGallery } from "@/components/charts/chart-gallery";
+import { ChartView } from "@/components/charts/chart-view";
+import { paletteFor } from "@/components/charts/word-cloud-layout";
 import { cn } from "@/lib/utils";
 import { ImageField } from "./image-field";
 import { TYPE_DESCRIPTIONS } from "./question-types";
@@ -163,6 +167,7 @@ function EditorBody({
   const [serverError, setServerError] = useState<string | null>(null);
   const [chartNotice, setChartNotice] = useState<string | null>(null);
   const optionsBackup = useRef<OptionForm[] | null>(null);
+  const resultsModeBackup = useRef<ResultsMode | null>(null);
 
   useEffect(() => {
     onDirtyChange(isDirty);
@@ -171,6 +176,7 @@ function EditorBody({
   const type = v.type;
   const numeric = isNumericType(type);
   const scored = isScoredType(type);
+  const text = isTextType(type);
 
   /* ---------------------------------------------------------------- cruzamento */
   const crossCandidates = useMemo(() => siblings.filter((q) => q.id !== original?.id && isCrossCandidate(q)), [siblings, original?.id]);
@@ -186,6 +192,8 @@ function EditorBody({
   const chartCtx = chartContextFor(v, hasCross);
   const ctxKey = JSON.stringify(chartCtx);
   useEffect(() => {
+    // nuvem de palavras: a visualização é sempre a nuvem (definida na troca de tipo)
+    if (isTextType(getValues("type"))) return;
     const current = getValues("chart.type");
     const check = checkChart(current, chartCtx);
     if (!check.compatible) {
@@ -203,7 +211,7 @@ function EditorBody({
     if (locked || next === getValues("type")) return;
     const cur = getValues();
     let opts = cur.options;
-    if (isNumericType(next)) {
+    if (isNumericType(next) || isTextType(next)) {
       if (opts.length) optionsBackup.current = opts;
       opts = [];
     } else {
@@ -252,6 +260,19 @@ function EditorBody({
     }
     if (isScoredType(next) && !cur.timeLimitSec && cur.scoring.speedBonusEnabled) setValue("timeLimitSec", 30);
     if (!isNumericType(next)) setValue("chart.colors", null);
+    if (isTextType(next)) {
+      // nuvem de palavras: sem alternativas/pontuação, visualização fixa em nuvem e resultados ao vivo
+      resultsModeBackup.current = cur.resultsMode;
+      setValue("resultsMode", "AO_VIVO");
+      setValue("allowEdit", false);
+      setValue("chart.type", "wordcloud");
+      setValue("chart.crossQuestionId", null);
+      setChartNotice(null);
+    } else if (isTextType(cur.type)) {
+      if (resultsModeBackup.current) setValue("resultsMode", resultsModeBackup.current);
+      setValue("chart.type", pickChart(chartContextFor({ ...cur, type: next, options: opts }, false)));
+      setChartNotice(null);
+    }
     form.clearErrors();
   };
 
@@ -351,8 +372,17 @@ function EditorBody({
           <div className="flex-1 text-sm">
             <p className="font-black">Pergunta bloqueada: já recebeu {original!.answersCount} {original!.answersCount === 1 ? "resposta" : "respostas"}.</p>
             <p className="mt-1 text-muted-foreground">
+              {text ? (
+                <>
+                  Para preservar os resultados, o tipo e as regras de coleta da nuvem (modo, limites de palavras, envios e caracteres, repetição e aprovação) não podem mudar. Sinônimos,
+                  palavras bloqueadas, agrupamento, aparência e textos continuam editáveis — cada salvamento gera uma nova versão. Para uma variação estrutural, duplique a pergunta.
+                </>
+              ) : (
+                <>
               Para preservar os resultados e a pontuação, tipo, alternativas (inclusão, remoção, ordem e gabarito), seleções, escala e pontuação não podem mudar. Você ainda pode
               ajustar textos, imagens, cores, gráfico e explicação — cada salvamento gera uma nova versão. Para uma variação estrutural, duplique a pergunta.
+                </>
+              )}
             </p>
           </div>
           {onDuplicate && (
@@ -366,9 +396,9 @@ function EditorBody({
       <Tabs value={tab} onValueChange={(t) => setTab(t as EditorTab)}>
         <TabsList className="mb-5 w-full sm:w-auto">
           {tabTrigger("pergunta", "Pergunta")}
-          {tabTrigger("respostas", numeric ? "Escala" : "Alternativas")}
+          {tabTrigger("respostas", text ? "Nuvem" : numeric ? "Escala" : "Alternativas")}
           {scored && tabTrigger("pontuacao", "Pontuação")}
-          {tabTrigger("grafico", "Gráfico")}
+          {tabTrigger("grafico", text ? "Aparência" : "Gráfico")}
           {tabTrigger("comportamento", "Comportamento")}
         </TabsList>
 
@@ -431,7 +461,9 @@ function EditorBody({
 
         {/* ============================================================ alternativas / escala */}
         <TabsContent value="respostas" className="flex flex-col gap-5">
-          {numeric ? (
+          {text ? (
+            <WordCloudRulesSection control={control} register={register} locked={locked} msg={msg} v={v} goTo={setTab} />
+          ) : numeric ? (
             <ScaleSection control={control} register={register} type={type} locked={locked} msg={msg} v={v} />
           ) : (
             <>
@@ -570,6 +602,10 @@ function EditorBody({
             </div>
           )}
 
+          {text ? (
+            <WordCloudDisplaySection control={control} setValue={setValue} msg={msg} v={v} />
+          ) : (
+            <>
           <div className="grid gap-5 lg:grid-cols-2">
             {allowCross ? (
               <Field
@@ -643,6 +679,8 @@ function EditorBody({
               />
             )}
           />
+            </>
+          )}
         </TabsContent>
 
         {/* ============================================================ comportamento */}
@@ -683,11 +721,13 @@ function EditorBody({
           </div>
           <div className="flex flex-col gap-3 rounded-xl border border-border p-4">
             <Controller control={control} name="required" render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} label="Resposta obrigatória" />} />
-            <Controller
-              control={control}
-              name="allowEdit"
-              render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} label="Permitir que o participante altere a resposta antes do encerramento" />}
-            />
+            {!text && (
+              <Controller
+                control={control}
+                name="allowEdit"
+                render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} label="Permitir que o participante altere a resposta antes do encerramento" />}
+              />
+            )}
           </div>
           <Field label="Explicação após a resposta (opcional)" htmlFor="q-expl" error={msg("explanation")} hint="Exibida quando o resultado é revelado — ideal para comentar o gabarito.">
             <Textarea id="q-expl" rows={3} maxLength={2000} aria-invalid={!!msg("explanation")} {...register("explanation")} />
@@ -956,6 +996,409 @@ function ScoringSection({ control, locked, msg, v, goToBehavior }: { control: Ct
         </div>
       </div>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ nuvem de palavras */
+const WC_MODE_HINTS: Record<WordCloudMode, string> = {
+  PALAVRA: "Cada palavra da resposta conta separadamente na nuvem; artigos e preposições podem ser descartados. Ideal para respostas de uma a três palavras.",
+  FRASE: "A resposta inteira vira um único termo (ex.: “falta de tempo”), preservando a expressão. Ideal para frases curtas.",
+};
+
+type WcSwitch = "wordCloud.allowRepeat" | "wordCloud.requireApproval" | "wordCloud.profanityFilter" | "wordCloud.groupEquivalent" | "wordCloud.ignoreCase" | "wordCloud.foldAccents" | "wordCloud.ignoreStopwords";
+
+function WordCloudRulesSection({ control, register, locked, msg, v, goTo }: { control: Ctl; register: Reg; locked: boolean; msg: Msg; v: FormValues; goTo: (t: EditorTab) => void }) {
+  const w = v.wordCloud;
+  const synonyms = useFieldArray({ control, name: "wordCloud.synonyms", keyName: "key" });
+  const [sample, setSample] = useState("");
+  const lockHint = "Bloqueado: a pergunta já tem respostas.";
+  const limitsValid = [w.maxWords, w.maxEntries, w.maxChars].every((n) => Number.isFinite(n) && n > 0);
+  const test = sample.trim() && limitsValid ? prepareEntry(sample, w) : null;
+  const blockedErr = msg("wordCloud.blockedWords") ?? w.blockedWords.map((_, i) => msg(`wordCloud.blockedWords.${i}`)).find(Boolean);
+
+  const num = (name: "wordCloud.maxWords" | "wordCloud.maxEntries" | "wordCloud.maxChars", label: string, opts: { min: number; max: number; hint: string }) => (
+    <Field label={label} htmlFor={`q-${name}`} error={msg(name)} hint={locked ? lockHint : opts.hint}>
+      <Controller
+        control={control}
+        name={name}
+        render={({ field }) => <NumberInput id={`q-${name}`} value={field.value} onChange={(n) => field.onChange(n ?? NaN)} min={opts.min} max={opts.max} disabled={locked} invalid={!!msg(name)} />}
+      />
+    </Field>
+  );
+  const sw = (name: WcSwitch, label: string, hint: string, disabled = false) => (
+    <div className="flex flex-col gap-1">
+      <Controller control={control} name={name} render={({ field }) => <Switch checked={field.value} disabled={disabled} onCheckedChange={field.onChange} label={label} />} />
+      <p className="pl-14 text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-5">
+      {locked && (
+        <p className="flex items-center gap-2 text-sm font-bold text-warning">
+          <Lock className="size-4" /> Regras de coleta bloqueadas: a pergunta já tem respostas. Moderação, sinônimos e bloqueios continuam editáveis.
+        </p>
+      )}
+      {msg("wordCloud") && (
+        <p className="rounded-xl bg-negative/10 px-3 py-2 text-sm font-bold text-negative" role="alert">
+          {msg("wordCloud")}
+        </p>
+      )}
+
+      {/* ---------------------------------------------------------- modo */}
+      <div>
+        <h4 className="font-black">Modo de resposta</h4>
+        <Controller
+          control={control}
+          name="wordCloud.mode"
+          render={({ field }) => (
+            <div className="mt-2 grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Modo de resposta">
+              {WC_MODES.map((m) => {
+                const active = field.value === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    disabled={locked}
+                    onClick={() => field.onChange(m)}
+                    className={cn(
+                      "rounded-2xl border p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-60",
+                      active ? "border-brand bg-brand/5 ring-1 ring-brand" : "border-border bg-card hover:border-brand/50 hover:bg-muted/50",
+                    )}
+                  >
+                    <span className="font-black">{WC_MODE_LABELS[m]}</span>
+                    <span className="mt-1 block text-sm text-muted-foreground">{WC_MODE_HINTS[m]}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        />
+        {locked && <p className="mt-1.5 text-xs text-muted-foreground">{lockHint}</p>}
+      </div>
+
+      {/* ---------------------------------------------------------- limites */}
+      <div className="rounded-xl border border-border p-4">
+        <h4 className="font-black">Limites por participante</h4>
+        <div className="mt-3 grid gap-4 sm:grid-cols-3">
+          {num("wordCloud.maxWords", "Máximo de palavras por resposta", { min: 1, max: 10, hint: w.mode === "PALAVRA" ? "De 1 a 10. Artigos e preposições ignorados não contam." : "De 1 a 10 palavras na frase." })}
+          {num("wordCloud.maxEntries", "Máximo de envios por participante", { min: 1, max: 20, hint: "De 1 a 20 respostas por pessoa." })}
+          {num("wordCloud.maxChars", "Limite de caracteres", { min: 10, max: 200, hint: "De 10 a 200 caracteres por resposta." })}
+        </div>
+        <div className="mt-4 flex flex-col gap-3">
+          {sw("wordCloud.allowRepeat", "Permitir respostas repetidas do mesmo participante", locked ? lockHint : "Quando desligado, a mesma pessoa não pode enviar o mesmo termo duas vezes.", locked)}
+          {sw("wordCloud.requireApproval", "Exigir aprovação antes de exibir", locked ? lockHint : "Cada envio fica pendente até o moderador aprovar; só os aprovados entram na nuvem.", locked)}
+        </div>
+      </div>
+
+      {/* ---------------------------------------------------------- moderação e agrupamento */}
+      <div className="rounded-xl border border-border p-4">
+        <h4 className="font-black">Moderação e agrupamento</h4>
+        <p className="text-sm text-muted-foreground">Estas regras são aplicadas na contagem e podem ser ajustadas a qualquer momento — valem também para as respostas já recebidas.</p>
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          {sw("wordCloud.profanityFilter", "Filtro de palavras inadequadas", "Recusa palavrões e ofensas comuns (inclusive com troca de letras por números).")}
+          {sw("wordCloud.groupEquivalent", "Agrupar palavras equivalentes", "Conta como um só termo as variações abaixo (ex.: “Vendas” e “vendas”).")}
+          {sw("wordCloud.ignoreCase", "Ignorar maiúsculas/minúsculas", "“CRM”, “crm” e “Crm” viram o mesmo termo.", !w.groupEquivalent)}
+          {sw("wordCloud.foldAccents", "Ignorar acentos", "“negociação” e “negociacao” viram o mesmo termo.", !w.groupEquivalent)}
+          {sw(
+            "wordCloud.ignoreStopwords",
+            "Ignorar palavras comuns (artigos e preposições)",
+            w.mode === "PALAVRA" ? "“a”, “de”, “para”, “com”… não entram na nuvem nem contam no limite de palavras." : "Só se aplica ao modo Palavra-chave.",
+            w.mode !== "PALAVRA",
+          )}
+        </div>
+      </div>
+
+      {/* ---------------------------------------------------------- bloqueios */}
+      <Field
+        label="Palavras bloqueadas"
+        htmlFor="q-wc-blocked"
+        error={blockedErr}
+        hint={`Uma por linha ou separadas por vírgula. Respostas com esses termos são recusadas no celular. ${w.blockedWords.length}/200 termos.`}
+      >
+        <Controller
+          control={control}
+          name="wordCloud.blockedWords"
+          render={({ field }) => <TermListInput id="q-wc-blocked" multiline value={field.value} onChange={field.onChange} maxItems={200} invalid={!!blockedErr} placeholder={"concorrente x\npalavra proibida"} />}
+        />
+      </Field>
+
+      {/* ---------------------------------------------------------- sinônimos */}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h4 className="font-black">
+              Sinônimos <span className="font-bold text-muted-foreground tabular">({synonyms.fields.length}/100)</span>
+            </h4>
+            <p className="text-sm text-muted-foreground">Agrupe variações sob um termo canônico — ex.: “Prospecção” reúne “prospectar”, “captação” e “prospeccao”.</p>
+          </div>
+          <Button type="button" variant="outline" size="sm" disabled={synonyms.fields.length >= 100} onClick={() => synonyms.append({ canonical: "", variants: [] })}>
+            <Plus /> Adicionar grupo
+          </Button>
+        </div>
+        {msg("wordCloud.synonyms") && <p className="text-xs font-bold text-negative">{msg("wordCloud.synonyms")}</p>}
+        {synonyms.fields.length > 0 && (
+          <ol className="flex flex-col gap-2">
+            {synonyms.fields.map((f, i) => {
+              const canonErr = msg(`wordCloud.synonyms.${i}.canonical`);
+              const varErr = msg(`wordCloud.synonyms.${i}.variants`) ?? (v.wordCloud.synonyms[i]?.variants ?? []).map((_, j) => msg(`wordCloud.synonyms.${i}.variants.${j}`)).find(Boolean);
+              return (
+                <li key={f.key} className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-start">
+                  <div className="sm:w-56">
+                    <Label htmlFor={`syn-c-${f.key}`} className="sr-only">
+                      Termo canônico do grupo {i + 1}
+                    </Label>
+                    <Input id={`syn-c-${f.key}`} maxLength={60} placeholder="Termo canônico" aria-invalid={!!canonErr} {...register(`wordCloud.synonyms.${i}.canonical`)} />
+                    {canonErr && <p className="mt-1 text-xs font-bold text-negative">{canonErr}</p>}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <Label htmlFor={`syn-v-${f.key}`} className="sr-only">
+                      Variações do grupo {i + 1}
+                    </Label>
+                    <Controller
+                      control={control}
+                      name={`wordCloud.synonyms.${i}.variants`}
+                      render={({ field }) => <TermListInput id={`syn-v-${f.key}`} value={field.value} onChange={field.onChange} maxItems={30} invalid={!!varErr} placeholder="Variações separadas por vírgula" />}
+                    />
+                    {varErr && <p className="mt-1 text-xs font-bold text-negative">{varErr}</p>}
+                  </div>
+                  <Button type="button" variant="ghost" size="icon" onClick={() => synonyms.remove(i)} aria-label={`Remover grupo de sinônimos ${i + 1}`} className="text-negative hover:bg-negative/10">
+                    <Trash2 />
+                  </Button>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </div>
+
+      {/* ---------------------------------------------------------- teste */}
+      <div className="rounded-2xl bg-muted p-4 text-sm">
+        <Label htmlFor="q-wc-test" className="font-black">
+          Testar uma resposta
+        </Label>
+        <p className="text-muted-foreground">Digite como um participante para ver como a resposta será contada com as regras atuais.</p>
+        <Input id="q-wc-test" className="mt-2 bg-card" value={sample} maxLength={300} placeholder="Ex.: falta de tempo para prospectar" onChange={(e) => setSample(e.target.value)} />
+        {test && (
+          <div className="mt-2" role="status">
+            {test.ok ? (
+              <p className="flex flex-wrap items-center gap-1.5">
+                <span className="font-bold text-positive">Aceita · conta como:</span>
+                {test.terms.map((t, i) => (
+                  <Badge key={`${t}-${i}`} tone="muted">
+                    {t}
+                  </Badge>
+                ))}
+              </p>
+            ) : (
+              <p className="font-bold text-negative">Recusada: {test.message}</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-start gap-2 rounded-xl border border-border px-3 py-2 text-sm" role="note">
+        <Info className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden="true" />
+        <p className="text-muted-foreground">
+          A <b className="text-foreground">duração</b> da coleta fica em{" "}
+          <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => goTo("comportamento")}>
+            Comportamento › Tempo limite
+          </Button>{" "}
+          e o <b className="text-foreground">texto de orientação</b> ao participante em{" "}
+          <Button type="button" variant="link" size="sm" className="h-auto p-0" onClick={() => goTo("pergunta")}>
+            Pergunta › Descrição
+          </Button>
+          .
+        </p>
+      </div>
+    </div>
+  );
+}
+
+const WC_STYLE_HINTS: Record<WordCloudStyle, string> = {
+  GESTALT: "Azul-marinho com destaques em fúcsia e branco.",
+  COLORIDO: "Paleta viva e variada, ideal para telões.",
+  MINIMALISTA: "Fundo claro e tons neutros, discreto.",
+};
+/** Fundo sugerido ao escolher o estilo (o organizador ainda pode trocar). */
+const WC_STYLE_BG: Record<WordCloudStyle, WordCloudBackground | null> = { GESTALT: "ESCURO", COLORIDO: null, MINIMALISTA: "CLARO" };
+
+function WordCloudDisplaySection({ control, setValue, msg, v }: { control: Ctl; setValue: SetVal; msg: Msg; v: FormValues }) {
+  const d = v.chart.wordCloud;
+  const [replay, setReplay] = useState(0);
+  const title = v.title.trim() || "Pré-visualização da nuvem";
+  const data = useMemo(() => previewWordCloud(title, v.wordCloud.mode), [title, v.wordCloud.mode]);
+  return (
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+      <div className="flex flex-col gap-5">
+        <div>
+          <span className="text-sm font-bold">Estilo</span>
+          <div className="mt-1.5 grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Estilo da nuvem">
+            {WC_STYLES.map((s) => {
+              const active = d.style === s;
+              const p = paletteFor(s, WC_STYLE_BG[s] ?? d.background);
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => {
+                    setValue("chart.wordCloud.style", s, { shouldDirty: true });
+                    const bg = WC_STYLE_BG[s];
+                    if (bg) setValue("chart.wordCloud.background", bg, { shouldDirty: true });
+                  }}
+                  className={cn(
+                    "flex flex-col gap-2 rounded-2xl border p-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand",
+                    active ? "border-brand bg-brand/5 ring-1 ring-brand" : "border-border bg-card hover:border-brand/50 hover:bg-muted/50",
+                  )}
+                >
+                  <span className="flex h-12 items-center justify-center gap-1.5 rounded-xl border border-black/10 font-black" style={{ background: p.background }} aria-hidden="true">
+                    <span className="text-lg" style={{ color: p.accent }}>
+                      Aa
+                    </span>
+                    <span className="text-sm" style={{ color: p.colors[0] }}>
+                      Aa
+                    </span>
+                    <span className="text-xs" style={{ color: p.colors[1] }}>
+                      Aa
+                    </span>
+                  </span>
+                  <span className="font-black">{WC_STYLE_LABELS[s]}</span>
+                  <span className="text-xs text-muted-foreground">{WC_STYLE_HINTS[s]}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <Field label="Fundo" error={msg("chart.wordCloud.background")}>
+          <Controller
+            control={control}
+            name="chart.wordCloud.background"
+            render={({ field }) => (
+              <div className="inline-flex w-fit rounded-xl border border-border p-1" role="radiogroup" aria-label="Fundo">
+                {(["ESCURO", "CLARO"] as const).map((b) => (
+                  <button
+                    key={b}
+                    type="button"
+                    role="radio"
+                    aria-checked={field.value === b}
+                    onClick={() => field.onChange(b)}
+                    className={cn("rounded-lg px-4 py-1.5 text-sm font-bold transition", field.value === b ? "bg-brand text-white" : "text-muted-foreground hover:bg-muted")}
+                  >
+                    {b === "ESCURO" ? "Escuro" : "Claro"}
+                  </button>
+                ))}
+              </div>
+            )}
+          />
+        </Field>
+
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Field label="Animação de entrada" htmlFor="q-wc-anim" error={msg("chart.wordCloud.animation")}>
+            <Controller
+              control={control}
+              name="chart.wordCloud.animation"
+              render={({ field }) => (
+                <NativeSelect id="q-wc-anim" value={field.value} onChange={(e) => field.onChange(e.target.value)}>
+                  {WC_ANIMATIONS.map((a) => (
+                    <option key={a} value={a}>
+                      {WC_ANIMATION_LABELS[a]}
+                    </option>
+                  ))}
+                </NativeSelect>
+              )}
+            />
+          </Field>
+          <Field label="Máximo de termos exibidos" htmlFor="q-wc-max" error={msg("chart.wordCloud.maxTerms")} hint="De 10 a 150. Os mais citados têm prioridade.">
+            <Controller
+              control={control}
+              name="chart.wordCloud.maxTerms"
+              render={({ field }) => <NumberInput id="q-wc-max" value={field.value} onChange={(n) => field.onChange(n ?? NaN)} min={10} max={150} step={5} invalid={!!msg("chart.wordCloud.maxTerms")} />}
+            />
+          </Field>
+        </div>
+
+        <Controller
+          control={control}
+          name="chart.wordCloud.showFrequency"
+          render={({ field }) => <Switch checked={field.value} onCheckedChange={field.onChange} label="Mostrar frequência dos termos" />}
+        />
+        <p className="text-xs text-muted-foreground">A aparência pode ser ajustada a qualquer momento, inclusive durante a palestra.</p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-bold">Pré-visualização</span>
+          <Button type="button" variant="outline" size="sm" disabled={d.animation === "NENHUMA"} onClick={() => setReplay((r) => r + 1)}>
+            <Play /> Ver animação
+          </Button>
+        </div>
+        <div className="overflow-hidden rounded-2xl border border-border">
+          <ChartView
+            key={replay}
+            data={data}
+            type="wordcloud"
+            config={{ showPercent: v.chart.showPercent, showValues: v.chart.showValues, showLegend: v.chart.showLegend, sortDesc: v.chart.sortDesc, colors: null, wordCloud: d }}
+            theme={d.background === "CLARO" ? "light" : "dark"}
+            preview={replay === 0}
+            showToolbar={false}
+            showTotals={false}
+            height={260}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">Dados de demonstração — veja como a nuvem ficará no telão antes de salvar.</p>
+      </div>
+    </div>
+  );
+}
+
+const parseTerms = (raw: string) => {
+  const out: string[] = [];
+  for (const part of raw.split(/[\n,;]/)) {
+    const t = part.trim();
+    if (t && !out.some((x) => x.toLocaleLowerCase("pt-BR") === t.toLocaleLowerCase("pt-BR"))) out.push(t);
+  }
+  return out;
+};
+
+/** Lista de termos digitada como texto livre (vírgula, ponto e vírgula ou quebra de linha). */
+function TermListInput({
+  id,
+  value,
+  onChange,
+  multiline,
+  maxItems,
+  invalid,
+  placeholder,
+}: {
+  id: string;
+  value: string[];
+  onChange: (v: string[]) => void;
+  multiline?: boolean;
+  maxItems: number;
+  invalid?: boolean;
+  placeholder?: string;
+}) {
+  const join = (list: string[]) => list.join(multiline ? "\n" : ", ");
+  const [text, setText] = useState(() => join(value ?? []));
+  const [prev, setPrev] = useState(value);
+  if (prev !== value) {
+    // valor trocado por fora (ex.: grupo removido): reflete no texto
+    setPrev(value);
+    if (parseTerms(text).slice(0, maxItems).join("\u0000") !== (value ?? []).join("\u0000")) setText(join(value ?? []));
+  }
+  const change = (t: string) => {
+    setText(t);
+    onChange(parseTerms(t).slice(0, maxItems));
+  };
+  return multiline ? (
+    <Textarea id={id} rows={4} value={text} placeholder={placeholder} aria-invalid={invalid} onChange={(e) => change(e.target.value)} />
+  ) : (
+    <Input id={id} value={text} placeholder={placeholder} aria-invalid={invalid} onChange={(e) => change(e.target.value)} />
   );
 }
 

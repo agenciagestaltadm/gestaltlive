@@ -42,6 +42,8 @@ import { audit, listAudit } from "./domains/audit";
 import { saveUpload, readUpload } from "./domains/uploads";
 import * as assets from "./domains/assets";
 import * as pres from "./domains/presentations";
+import * as wordcloud from "./domains/wordcloud";
+import { RT } from "@shared/types";
 import { presenterCommand, presenterSnapshot } from "./domains/presenter";
 import { disqualifySchema, loginSchema, orgCreateSchema, registrationConfigSchema, scoreAdjustmentSchema, SCREENS, userCreateSchema } from "@shared/schemas";
 import { prizeAwards, sessionParticipants, sessionQuestions, participants as participantsTable } from "./db/schema";
@@ -317,6 +319,19 @@ export function createApp(ctx: AppContext) {
     await live.nextQuestion(ctx, c.get("actor"), id);
     return controlResponse(c, id);
   });
+  /* ------------------------------------------------------------ nuvem de palavras: moderação */
+  admin.get("/sessions/:id/questions/:sqId/wordcloud", async (c) => {
+    const status = z.enum(["APROVADA", "PENDENTE", "REJEITADA"]).optional().parse(q(c, "status"));
+    return c.json(await wordcloud.listWordCloudEntries(ctx, c.get("actor"), pid(c.req.param("id")), pid(c.req.param("sqId")), { status }));
+  });
+  admin.post("/sessions/:id/questions/:sqId/wordcloud/entries/:entryId/:decision", async (c) => {
+    const decision = z.enum(["approve", "reject"]).parse(c.req.param("decision"));
+    return c.json(await wordcloud.moderateWordCloudEntry(ctx, c.get("actor"), pid(c.req.param("id")), pid(c.req.param("sqId")), pid(c.req.param("entryId")), decision));
+  });
+  admin.post("/sessions/:id/questions/:sqId/wordcloud/terms", async (c) => {
+    const input = await body(c, z.object({ term: z.string().trim().min(1).max(200), action: z.enum(["hide", "block", "restore"]) }));
+    return c.json(await wordcloud.setWordCloudTermRule(ctx, c.get("actor"), pid(c.req.param("id")), pid(c.req.param("sqId")), input));
+  });
   admin.post("/sessions/:id/questions/:sqId/:action", async (c) => {
     const id = pid(c.req.param("id"));
     const sqId = pid(c.req.param("sqId"));
@@ -478,7 +493,7 @@ export function createApp(ctx: AppContext) {
     ),
   );
   admin.get("/sessions/:id/export.csv", async (c) => {
-    const kind = z.enum(["ranking", "respostas", "participantes"]).parse(q(c, "kind") ?? "ranking");
+    const kind = z.enum(["ranking", "respostas", "participantes", "nuvem"]).parse(q(c, "kind") ?? "ranking");
     const csv = await reports.exportSessionCsv(ctx, c.get("actor"), pid(c.req.param("id")), kind);
     return c.body(csv, 200, { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${kind}.csv"` });
   });
@@ -695,6 +710,15 @@ export function createApp(ctx: AppContext) {
       if (handled) ctx.rt.toParticipant(a.session.id, a.sp.id, "answer:rejected", { message: (err as Error).message });
       throw err;
     }
+  });
+  part.post("/:code/wordcloud", async (c) => {
+    const a = await auth(c);
+    ctx.limits.wordcloud.enforce(`sp:${a.sp.id}`);
+    const input = (await body(c)) as { sessionQuestionId?: string };
+    const r = await wordcloud.submitWordCloudEntry(ctx, a, input);
+    // outras abas do mesmo participante atualizam a lista de envios
+    ctx.rt.toParticipant(a.session.id, a.sp.id, RT.wordCloudEntry, { sessionQuestionId: input.sessionQuestionId, entry: r.entry, remaining: r.remaining });
+    return c.json(r, r.outcome === "DUPLICADA" ? 200 : 201);
   });
   part.post("/:code/satisfaction", async (c) => {
     const a = await auth(c);

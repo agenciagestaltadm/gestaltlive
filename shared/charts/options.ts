@@ -4,6 +4,7 @@
  */
 import type { ResultsDTO } from "../types";
 import type { ChartType } from "./catalog";
+import { DEMO_WORD_CLOUD, type WordCloudDisplay, type WordCloudMode } from "../wordcloud";
 
 export interface ChartRenderConfig {
   showPercent: boolean;
@@ -11,6 +12,8 @@ export interface ChartRenderConfig {
   showLegend: boolean;
   sortDesc: boolean;
   colors: string[] | null;
+  /** Aparência da Nuvem de Palavras (somente nesse tipo). */
+  wordCloud?: Partial<WordCloudDisplay> | null;
 }
 
 export interface BuildOptions {
@@ -215,6 +218,8 @@ export function buildChartOption(type: ChartType, data: ResultsDTO, o: BuildOpti
         series: [{ type: "bar", data: barData, barMaxWidth: type === "column" ? 120 : 56, barCategoryGap: type === "column" ? "18%" : "40%", label: { ...barLabel, position: "top" } }],
       });
     case "bar_horizontal":
+    // nuvem de palavras: barras dos termos mais citados (miniaturas, PDF e telas sem a nuvem desenhada)
+    case "wordcloud":
       return base(o, {
         legend: { show: false },
         tooltip: { ...(base(o).tooltip as Opt), formatter: tooltipFmt },
@@ -790,6 +795,7 @@ export function previewResults(q: {
   scaleMax?: number | null;
   withCross?: boolean;
 }): ResultsDTO {
+  if (q.type === "NUVEM_PALAVRAS") return previewWordCloud(q.title);
   const numeric = q.type === "ESCALA" || q.type === "NPS";
   const labels = numeric
     ? Array.from({ length: (q.scaleMax ?? 10) - (q.scaleMin ?? 0) + 1 }, (_, i) => String((q.scaleMin ?? 0) + i))
@@ -845,6 +851,34 @@ export function previewResults(q: {
     cross: q.withCross
       ? { questionTitle: "Segmento (prévia)", segments: ["Varejo", "Serviços", "Indústria"], matrix: [0, 1, 2].map((s) => cats.map((c, i) => Math.max(0, Math.round(c.count / 3 + ((s - 1) * (i % 3)) / 1.5)))) }
       : null,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/** Resultado demonstrativo da Nuvem de Palavras (pré-visualização, galeria e ensaio). */
+export function previewWordCloud(title: string, mode: WordCloudMode = "PALAVRA"): ResultsDTO {
+  const total = DEMO_WORD_CLOUD.reduce((a, t) => a + t.count, 0);
+  const terms = DEMO_WORD_CLOUD.map((t) => ({ key: t.label.toLowerCase(), label: t.label, count: t.count, pct: Math.round((t.count / total) * 1000) / 10 }));
+  const respondents = Math.round(total / 1.6);
+  return {
+    sessionQuestionId: "previa",
+    questionType: "NUVEM_PALAVRAS",
+    title,
+    multiSelect: false,
+    totals: { participants: Math.round(respondents * 1.2), respondents, selections: total },
+    categories: terms.map((t) => ({ id: t.key, label: t.label, color: null, count: t.count, pct: t.pct, isCorrect: null, avgResponseMs: null })),
+    numeric: null,
+    correctRevealed: true,
+    accuracyPct: null,
+    timeline: { bucketMs: 5000, points: [] },
+    scatter: null,
+    cross: null,
+    wordCloud: {
+      mode,
+      terms,
+      denominator: { kind: mode === "FRASE" ? "RESPOSTAS" : "TERMOS", value: total },
+      totals: { entries: respondents, termOccurrences: total, uniqueTerms: terms.length, respondents },
+    },
     generatedAt: new Date().toISOString(),
   };
 }

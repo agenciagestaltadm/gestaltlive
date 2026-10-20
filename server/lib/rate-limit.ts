@@ -52,6 +52,8 @@ export interface RateLimits {
   lookup: RateLimiter;
   answer: RateLimiter;
   satisfaction: RateLimiter;
+  /** Envios da Nuvem de Palavras (vários por pergunta quando configurado). */
+  wordcloud: RateLimiter;
   participant: RateLimiter;
   admin: RateLimiter;
 }
@@ -68,6 +70,7 @@ export function createRateLimits(multiplier = 1): RateLimits {
     lookup: new RateLimiter(m(120), m(120) / 60),
     answer: new RateLimiter(m(10), m(2)),
     satisfaction: new RateLimiter(m(10), m(1)),
+    wordcloud: new RateLimiter(m(10), m(1)),
     participant: new RateLimiter(m(120), m(30)),
     admin: new RateLimiter(m(600), m(100)),
   };

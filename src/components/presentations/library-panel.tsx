@@ -24,7 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { ITEM_TYPE_LABELS, type AssetDTO, type PresentationItemType } from "@shared/presentations";
-import { isScoredType, type QuestionType, type ResultsMode } from "@shared/schemas";
+import { isScoredType, isTextType, type QuestionType, type ResultsMode } from "@shared/schemas";
 import { admin, ApiError } from "@/lib/api";
 import { useApi } from "@/lib/hooks";
 import { cn, fmtDate, fmtInt } from "@/lib/utils";
@@ -36,7 +36,7 @@ import { QuestionEditor } from "@/components/builder/question-editor";
 import { TypeBadge, TypePickerDialog } from "@/components/builder/question-types";
 import type { QuestionRow } from "@/components/builder/types";
 import { ItemTypeIcon } from "./item-visual";
-import { fmtBytes, newItem, questionItem, type AssetListResponse, type EditorItem } from "./types";
+import { fmtBytes, newItem, questionItem, suggestedQuestionItemType, type AssetListResponse, type EditorItem } from "./types";
 import { useUploadQueue, type UploadEntry } from "./use-upload-queue";
 
 export type InsertMode = "end" | "after";
@@ -595,7 +595,7 @@ function QuestionsTab({ orgId, eventId, items, questions, readOnly, defaultResul
         )}
       </div>
       <p className="text-xs text-muted-foreground">
-        Pesquisas entram como <b>Pergunta</b> ou <b>Enquete</b>; perguntas pontuadas como <b>Quiz</b>. <b>Gráfico</b> exibe o resultado de uma pergunta já liberada.
+        Pesquisas entram como <b>Pergunta</b> ou <b>Enquete</b>; perguntas pontuadas como <b>Quiz</b>; nuvens de palavras como <b>Pergunta</b>. <b>Gráfico</b> exibe o resultado de uma pergunta já liberada.
       </p>
       {questions.loading && !questions.data ? (
         <div className="space-y-2">
@@ -646,9 +646,11 @@ function QuestionsTab({ orgId, eventId, items, questions, readOnly, defaultResul
                         <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => add("QUESTION", row)}>
                           <ItemTypeIcon type="QUESTION" /> Pergunta
                         </Button>
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => add("POLL", row)}>
-                          <ItemTypeIcon type="POLL" /> Enquete
-                        </Button>
+                        {!isTextType(row.type) && (
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => add("POLL", row)}>
+                            <ItemTypeIcon type="POLL" /> Enquete
+                          </Button>
+                        )}
                       </>
                     )}
                     <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => add("CHART", row)}>
@@ -687,7 +689,7 @@ function QuestionsTab({ orgId, eventId, items, questions, readOnly, defaultResul
               const fresh = (await questions.reload()) as QuestionRow[] | undefined;
               const row = fresh?.find((x) => x.id === saved.id);
               if (row) {
-                const type = isScoredType(row.type) ? "QUIZ" : row.type === "SIM_NAO" ? "POLL" : "QUESTION";
+                const type = suggestedQuestionItemType(row);
                 onInsertItems([questionItem(type, row)]);
                 toast.success("Pergunta criada no evento e inserida na linha do tempo.");
               }

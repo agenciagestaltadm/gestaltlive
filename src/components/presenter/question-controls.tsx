@@ -4,10 +4,13 @@
  * Deixa explícita a diferença entre "item no telão" e "pergunta aberta para os participantes".
  */
 import { useEffect, useState } from "react";
-import { BarChart3, CheckCircle2, ChevronDown, ChevronUp, Eye, EyeOff, Lock, Monitor, Pause, Play, Plus, Radio, Timer } from "lucide-react";
+import { useParams } from "next/navigation";
+import { BarChart3, CheckCircle2, ChevronDown, ChevronUp, Clock, Cloud, Eye, EyeOff, Lock, Monitor, Pause, Play, Plus, Radio, Timer } from "lucide-react";
 import type { ControlQuestionDTO, ResultsDTO } from "@shared/types";
 import { QUESTION_TYPE_LABELS, SQ_STATE_LABELS } from "@shared/schemas";
 import { ChartView } from "@/components/charts/chart-view";
+import { WordCloudTable } from "@/components/charts/word-cloud-table";
+import { fetchWordCloudPending, useWordCloudPending } from "@/components/live/word-cloud-pending";
 import { Countdown } from "@/components/live/timer";
 import { Button } from "@/components/ui/button";
 import { Badge, Progress } from "@/components/ui/primitives";
@@ -51,12 +54,22 @@ export function QuestionControls({
   const closed = q.state === "FECHADA" || q.state === "RESULTADO_EXIBIDO";
   const answered = results?.totals.respondents ?? q.answeredCount;
   const rate = registered ? (answered / registered) * 100 : 0;
+  const cloud = q.type === "NUVEM_PALAVRAS";
+  const wc = cloud ? (results?.wordCloud ?? null) : null;
 
-  // resultado parcial (visível só para o palestrante) sob demanda
+  // resultado parcial (visível só para o palestrante) sob demanda; na nuvem, também para os totais de termos
   const hasResults = !!results;
   useEffect(() => {
-    if (showChart && q.state !== "PRONTA" && !hasResults) fetchResults(q.sessionQuestionId);
-  }, [showChart, q.state, q.sessionQuestionId, hasResults, fetchResults]);
+    if ((showChart || cloud) && q.state !== "PRONTA" && !hasResults) fetchResults(q.sessionQuestionId);
+  }, [showChart, cloud, q.state, q.sessionQuestionId, hasResults, fetchResults]);
+
+  // nuvem com aprovação prévia: contagem de pendentes (uma busca leve; depois chega por RT.wordCloudPending)
+  const sessionId = useParams<{ id: string }>()?.id;
+  const needsApproval = cloud && !!q.wordCloud?.requireApproval && q.state !== "PRONTA";
+  const wcPending = useWordCloudPending(needsApproval ? q.sessionQuestionId : null);
+  useEffect(() => {
+    if (needsApproval && sessionId) void fetchWordCloudPending(sessionId, q.sessionQuestionId);
+  }, [needsApproval, sessionId, q.sessionQuestionId]);
 
   return (
     <section className={cn("rounded-2xl border bg-navy-900 p-4", open ? "border-brand/60" : "border-white/10", className)} aria-label={`Pergunta: ${q.title}`}>
@@ -80,8 +93,14 @@ export function QuestionControls({
           </Badge>
         )}
         <Badge tone="outline" className="border-white/15 text-[11px] text-white/60">
+          {cloud && <Cloud className="size-3" />}
           {QUESTION_TYPE_LABELS[q.type]}
         </Badge>
+        {!!wcPending && (
+          <Badge tone="warning" className="text-[11px]" title="Envios aguardando aprovação no painel de controle — não aparecem no telão até a aprovação">
+            <Clock className="size-3" /> {fmtInt(wcPending)} {wcPending === 1 ? "pendente" : "pendentes"}
+          </Badge>
+        )}
         {q.scored && (
           <Badge tone="brand" className="text-[11px]">
             Pontuada
@@ -100,11 +119,18 @@ export function QuestionControls({
         <div className="mt-3">
           <div className="flex items-end justify-between text-xs font-bold text-white/70">
             <span>
-              Respostas: <span className="text-sm font-black tabular text-brand">{fmtInt(answered)}</span> de {fmtInt(registered)}
+              {cloud ? "Responderam" : "Respostas"}: <span className="text-sm font-black tabular text-brand">{fmtInt(answered)}</span> de {fmtInt(registered)}
             </span>
             <span className="tabular">{fmtPct(rate)}</span>
           </div>
           <Progress value={rate} className="mt-1 bg-white/10" />
+          {wc && (
+            <p className="mt-1.5 text-xs font-bold text-white/70">
+              <span className="tabular text-white">{fmtInt(wc.totals.termOccurrences)}</span> {wc.totals.termOccurrences === 1 ? "termo" : "termos"} ·{" "}
+              <span className="tabular text-white">{fmtInt(wc.totals.uniqueTerms)}</span> {wc.totals.uniqueTerms === 1 ? "único" : "únicos"}
+            </p>
+          )}
+          {!!wcPending && <p className="mt-1 text-[11px] text-warning">Envios pendentes não aparecem no telão até a aprovação (painel de controle).</p>}
         </div>
       )}
 
@@ -144,14 +170,14 @@ export function QuestionControls({
               <Eye /> Exibir gráfico
             </Button>
           ))}
-        {q.scored && closed && !q.correctRevealedAt && (
+        {q.scored && !cloud && closed && !q.correctRevealedAt && (
           <Button variant="positive" onClick={() => act(k("reveal"), `${base}/reveal`, {}, "Resposta correta revelada e pontos publicados.")} loading={pending === k("reveal")}>
             <CheckCircle2 /> Revelar resposta correta
           </Button>
         )}
       </div>
       {!live && q.state === "PRONTA" && <p className="mt-2 text-xs text-warning">Inicie a sessão para liberar perguntas.</p>}
-      {q.scored && open && <p className="mt-2 text-xs text-white/50">O gabarito pode ser revelado após o encerramento.</p>}
+      {q.scored && !cloud && open && <p className="mt-2 text-xs text-white/50">O gabarito pode ser revelado após o encerramento.</p>}
       {q.correctRevealedAt && <p className="mt-2 text-xs text-positive">Resposta correta já revelada.</p>}
 
       {q.state !== "PRONTA" && (
@@ -163,14 +189,23 @@ export function QuestionControls({
             aria-expanded={showChart}
           >
             <span className="inline-flex items-center gap-1.5">
-              <BarChart3 className="size-3.5" /> Resultado parcial (só você vê)
+              {cloud ? <Cloud className="size-3.5" /> : <BarChart3 className="size-3.5" />} {cloud ? "Nuvem parcial (só você vê)" : "Resultado parcial (só você vê)"}
             </span>
             {showChart ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
           </button>
           {showChart && (
             <div className="mt-2">
-              <ChartView data={results} type={q.chart.type} config={q.chart} theme="dark" height={220} showToolbar={false} />
-              <p className="mt-1 text-[11px] text-white/40">{q.resultsShownAt ? "O público está vendo o gráfico." : "O público ainda não vê a distribuição das respostas."}</p>
+              <ChartView data={results} type={cloud ? "wordcloud" : q.chart.type} config={q.chart} theme="dark" height={220} showToolbar={false} showTotals={!cloud} />
+              {wc && <WordCloudTable data={wc} limit={8} theme="dark" className="mt-2" />}
+              <p className="mt-1 text-[11px] text-white/40">
+                {cloud
+                  ? q.resultsShownAt
+                    ? "O público está vendo a nuvem."
+                    : "O público ainda não vê a nuvem."
+                  : q.resultsShownAt
+                    ? "O público está vendo o gráfico."
+                    : "O público ainda não vê a distribuição das respostas."}
+              </p>
             </div>
           )}
         </div>

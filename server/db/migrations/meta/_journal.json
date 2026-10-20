@@ -29,6 +29,13 @@
       "when": 1792348081743,
       "tag": "0003_tempo_real_serverless",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792496049966,
+      "tag": "0004_nuvem_palavras",
+      "breakpoints": true
     }
   ]
 }

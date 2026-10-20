@@ -114,6 +114,10 @@ export class ParticipantClient {
   answer(sessionQuestionId: string, optionIds: string[], value: number | null = null, key: string = crypto.randomUUID()) {
     return this.req("POST", "/answers", { sessionQuestionId, optionIds, value, idempotencyKey: key });
   }
+  /** Envio de texto para a Nuvem de Palavras. */
+  word(sessionQuestionId: string, text: string, key: string = crypto.randomUUID()) {
+    return this.req("POST", "/wordcloud", { sessionQuestionId, text, idempotencyKey: key });
+  }
   satisfaction(value: "POSITIVO" | "NEGATIVO") {
     return this.req("POST", "/satisfaction", { value });
   }

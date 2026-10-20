@@ -20,9 +20,9 @@ const control = () => env.admin.get(`/api/admin/sessions/${s.sessionId}/control`
 const q = (ctrl: any, pos: number) => ctrl.questions.find((x: any) => x.position === pos);
 
 describe("preparação (cenários 1–4)", () => {
-  it("evento de demonstração tem 10 perguntas, gráficos diferentes e 3 prêmios", async () => {
+  it("evento de demonstração tem 11 perguntas (inclui nuvem de palavras), gráficos diferentes e 3 prêmios", async () => {
     const qs = await env.admin.get(`/api/admin/events/${s.eventId}/questions`);
-    expect(qs).toHaveLength(10);
+    expect(qs).toHaveLength(11);
     expect(new Set(qs.map((x: any) => x.chart.type)).size).toBeGreaterThanOrEqual(8);
     const prizes = await env.admin.get(`/api/admin/events/${s.eventId}/prizes`);
     expect(prizes.map((p: any) => p.rank)).toEqual([1, 2, 3]);
@@ -284,7 +284,7 @@ describe("encerramento, pódio e relatórios (cenários 14–15)", () => {
     const report = await env.admin.get(`/api/admin/sessions/${s.sessionId}/report`);
     expect(report.totals.registered).toBe(30);
     expect(report.totals.interacted).toBeGreaterThan(0);
-    expect(report.questions).toHaveLength(10);
+    expect(report.questions).toHaveLength(11);
     expect(report.top10.length).toBe(10);
     const filtered = await env.admin.get(`/api/admin/sessions/${s.sessionId}/report?fieldKey=segmento&fieldValue=Varejo`);
     expect(filtered.totals.registered).toBe(10);

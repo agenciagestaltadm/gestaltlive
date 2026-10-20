@@ -4,7 +4,7 @@
  */
 import type { QuestionType, SessionStatus } from "@shared/schemas";
 import type { NpsSummary, SatisfactionSummary } from "@shared/scoring";
-import type { SatisfactionDTO } from "@shared/types";
+import type { SatisfactionDTO, WordCloudResultsDTO } from "@shared/types";
 
 /* ------------------------------------------------------------------ relatório da sessão */
 export interface ReportCategory {
@@ -32,6 +32,8 @@ export interface ReportQuestion {
   nps: NpsSummary | null;
   options: { id: string; label: string }[];
   selectable: boolean;
+  /** Nuvem de Palavras: termos aprovados e visíveis do recorte (nas demais perguntas, null). Em `categories` vêm os termos mais citados. */
+  wordCloud: WordCloudResultsDTO | null;
 }
 
 export interface RankedRow {
@@ -112,7 +114,15 @@ export interface CompareResult {
     questionId: string;
     title: string;
     scored: boolean;
-    perSession: { sessionId: string; responseRatePct: number | null; accuracyPct: number | null; mean: number | null }[];
+    type: QuestionType;
+    perSession: {
+      sessionId: string;
+      responseRatePct: number | null;
+      accuracyPct: number | null;
+      mean: number | null;
+      /** Nuvem de Palavras: termos mais citados nesta turma (null nas demais perguntas ou se não aplicada). */
+      topTerms: { label: string; count: number; pct: number }[] | null;
+    }[];
   }[];
 }
 

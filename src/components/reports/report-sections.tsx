@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Search, Trophy, Medal } from "lucide-react";
 import { QUESTION_TYPE_LABELS } from "@shared/schemas";
 import { ChartView } from "@/components/charts/chart-view";
+import { WordCloudTable } from "@/components/charts/word-cloud-table";
 import { Badge, Card, CardContent, CardHeader, CardTitle, EmptyState, Input, Progress } from "@/components/ui/primitives";
 import { Button } from "@/components/ui/button";
 import { cn, fmtInt, fmtPct } from "@/lib/utils";
@@ -22,8 +23,10 @@ function Metric({ label, value, className }: { label: string; value: React.React
 
 export function QuestionResultCard({ q, registered, theme }: { q: ReportQuestion; registered: number; theme: "dark" | "light" }) {
   const numeric = q.type === "ESCALA" || q.type === "NPS";
+  const cloud = q.type === "NUVEM_PALAVRAS";
   const dto = useMemo(() => toResultsDTO(q, registered), [q, registered]);
   const height = numeric ? 280 : Math.min(460, Math.max(180, 46 * q.categories.length + 40));
+  const wc = q.wordCloud;
   return (
     <Card className="flex min-w-0 flex-col">
       <CardHeader>
@@ -36,6 +39,14 @@ export function QuestionResultCard({ q, registered, theme }: { q: ReportQuestion
         <CardTitle className="mt-1 leading-snug">{q.title}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-4">
+        {cloud ? (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Metric label="Taxa de resposta" value={fmtPct(q.responseRatePct)} />
+            <Metric label="Respondentes" value={fmtInt(q.respondents)} />
+            <Metric label="Termos" value={wc ? fmtInt(wc.totals.termOccurrences) : "—"} />
+            <Metric label="Termos únicos" value={wc ? fmtInt(wc.totals.uniqueTerms) : "—"} />
+          </div>
+        ) : (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Metric label="Taxa de resposta" value={fmtPct(q.responseRatePct)} />
           <Metric label="Respondentes" value={fmtInt(q.respondents)} />
@@ -52,6 +63,7 @@ export function QuestionResultCard({ q, registered, theme }: { q: ReportQuestion
             <Metric label="Acerto" value={q.scored ? fmtPct(q.accuracyPct) : "—"} className={q.scored ? "text-positive" : ""} />
           )}
         </div>
+        )}
         {q.type === "NPS" && q.nps && q.nps.total > 0 && (
           <p className="text-sm text-muted-foreground">
             <span className="font-bold text-positive">{fmtInt(q.nps.promoters)} promotores</span> · {fmtInt(q.nps.passives)} neutros ·{" "}
@@ -60,6 +72,19 @@ export function QuestionResultCard({ q, registered, theme }: { q: ReportQuestion
         )}
         {q.respondents === 0 ? (
           <EmptyState title="Sem respostas" description="Nenhuma resposta registrada para esta pergunta neste recorte." className="p-6" />
+        ) : cloud ? (
+          <>
+            <ChartView
+              data={dto}
+              type="wordcloud"
+              config={{ wordCloud: { style: "GESTALT", background: theme === "dark" ? "ESCURO" : "CLARO", animation: "NENHUMA", showFrequency: false, maxTerms: 50 } }}
+              theme={theme}
+              height={320}
+              showTotals={false}
+              exportName={`nuvem-pergunta-${q.position}`}
+            />
+            {wc && <WordCloudTable data={wc} limit={10} theme={theme} />}
+          </>
         ) : (
           <ChartView data={dto} type={numeric ? "column" : "bar_horizontal"} theme={theme} height={height} showTotals={false} exportName={`pergunta-${q.position}`} />
         )}

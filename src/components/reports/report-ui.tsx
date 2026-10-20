@@ -110,7 +110,7 @@ export function toResultsDTO(q: ReportQuestion, registered: number): ResultsDTO 
     multiSelect: !numeric && !q.selectable,
     totals: { participants: registered, respondents: q.respondents, selections: q.categories.reduce((a, c) => a + c.count, 0) },
     categories: q.categories.map((c, i) => ({
-      id: q.options[i]?.id ?? `${q.sessionQuestionId}-${i}`,
+      id: q.options[i]?.id ?? q.wordCloud?.terms[i]?.key ?? `${q.sessionQuestionId}-${i}`,
       label: c.label,
       color: null,
       count: c.count,
@@ -124,6 +124,7 @@ export function toResultsDTO(q: ReportQuestion, registered: number): ResultsDTO 
     timeline: { bucketMs: 0, points: [] },
     scatter: null,
     cross: null,
+    wordCloud: q.wordCloud ?? null,
     generatedAt: new Date().toISOString(),
   };
 }

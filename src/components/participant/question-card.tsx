@@ -8,6 +8,7 @@ import { Countdown, useRemaining } from "@/components/live/timer";
 import { Button } from "@/components/ui/button";
 import { ChartView } from "@/components/charts/chart-view";
 import { cn, fmtInt } from "@/lib/utils";
+import { WordCloudCard } from "./word-cloud-card";
 
 type MyAnswer = ParticipantStateDTO["myAnswer"];
 
@@ -16,6 +17,12 @@ function sameSet(a: string[], b: string[]) {
 }
 
 export function QuestionCard({ q, myAnswer }: { q: PublicQuestionDTO; myAnswer: MyAnswer }) {
+  // nuvem de palavras: resposta em texto livre
+  if (q.type === "NUVEM_PALAVRAS") return <WordCloudCard q={q} />;
+  return <ChoiceCard q={q} myAnswer={myAnswer} />;
+}
+
+function ChoiceCard({ q, myAnswer }: { q: PublicQuestionDTO; myAnswer: MyAnswer }) {
   const { submitAnswer, submitting, answeredCount, state } = useParticipant();
   const [selected, setSelected] = useState<string[]>([]);
   const [value, setValue] = useState<number | null>(null);
@@ -220,8 +227,8 @@ export function PublicResults({ results, q }: { results: ParticipantStateDTO["re
   if (!results) return null;
   return (
     <div className="rounded-2xl border border-white/10 bg-navy-900/80 p-4">
-      <p className="mb-2 text-sm font-black">Resultado</p>
-      <ChartView data={results} type={q.chart.type} config={q.chart} theme="dark" height={260} showToolbar={false} />
+      <p className="mb-2 text-sm font-black">{q.type === "NUVEM_PALAVRAS" ? "Nuvem de palavras" : "Resultado"}</p>
+      <ChartView data={results} type={q.chart.type} config={q.chart} theme="dark" height={q.type === "NUVEM_PALAVRAS" ? 300 : 260} showToolbar={false} />
     </div>
   );
 }

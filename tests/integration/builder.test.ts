@@ -15,7 +15,7 @@ const strip = (q: any) => {
 };
 
 describe("construtor de perguntas", () => {
-  it("cria um treinamento com dez perguntas de tipos e gráficos diferentes", async () => {
+  it("cria um treinamento com onze perguntas de tipos e gráficos diferentes", async () => {
     const ev = await env.admin.post(`/api/admin/events?orgId=${env.orgId}`, { title: "Treinamento novo" });
     const base = { chart: { type: "bar_vertical" }, resultsMode: "MANUAL" };
     const qs = [
@@ -29,11 +29,12 @@ describe("construtor de perguntas", () => {
       { type: "NPS", title: "Recomendaria?", chart: { type: "gauge" } },
       { type: "OPINIAO", title: "Canal", options: [{ label: "a" }, { label: "b" }, { label: "c" }, { label: "d" }], chart: { type: "pareto" } },
       { type: "OPINIAO", title: "Formato", options: [{ label: "a" }, { label: "b" }, { label: "c" }], chart: { type: "radar" } },
+      { type: "NUVEM_PALAVRAS", title: "Uma palavra", chart: { type: "wordcloud", wordCloud: { style: "COLORIDO" } }, wordCloud: { maxWords: 2, synonyms: [{ canonical: "Clientes", variants: ["cliente"] }] } },
     ];
     for (const q of qs) await env.admin.post(`/api/admin/events/${ev.id}/questions`, { ...base, ...q });
     const list = await env.admin.get(`/api/admin/events/${ev.id}/questions`);
-    expect(list).toHaveLength(10);
-    expect(new Set(list.map((q: any) => q.chart.type)).size).toBe(10);
+    expect(list).toHaveLength(11);
+    expect(new Set(list.map((q: any) => q.chart.type)).size).toBe(11);
     // reordenação
     const ids = list.map((q: any) => q.id).reverse();
     await env.admin.put(`/api/admin/events/${ev.id}/questions/order`, { ids });
@@ -43,14 +44,19 @@ describe("construtor de perguntas", () => {
     const exported = await env.admin.get(`/api/admin/events/${ev.id}/questions/export`);
     const ev2 = await env.admin.post(`/api/admin/events?orgId=${env.orgId}`, { title: "Cópia por importação" });
     const imp = await env.admin.post(`/api/admin/events/${ev2.id}/questions/import`, exported);
-    expect(imp.imported).toBe(10);
+    expect(imp.imported).toBe(11);
     // template e evento a partir do template
     const t = await env.admin.post(`/api/admin/events/${ev.id}/save-template`, { name: "Modelo padrão" });
     const ev3 = await env.admin.post(`/api/admin/templates/${t.id}/create-event`, { title: "Turma de julho" });
-    expect(await env.admin.get(`/api/admin/events/${ev3.id}/questions`)).toHaveLength(10);
+    const fromTemplate = await env.admin.get(`/api/admin/events/${ev3.id}/questions`);
+    expect(fromTemplate).toHaveLength(11);
+    // a nuvem de palavras leva regras e aparência na exportação, importação e template
+    const wc = fromTemplate.find((q: any) => q.type === "NUVEM_PALAVRAS");
+    expect(wc.wordCloud).toMatchObject({ maxWords: 2, synonyms: [{ canonical: "Clientes", variants: ["cliente"] }] });
+    expect(wc.chart.wordCloud.style).toBe("COLORIDO");
     // importação inválida não grava nada
     await expectHttpError(env.admin.post(`/api/admin/events/${ev2.id}/questions/import`, { ...exported, questions: [{ type: "CONHECIMENTO", title: "x", chart: { type: "pie" }, options: [] }] }), 400);
-    expect(await env.admin.get(`/api/admin/events/${ev2.id}/questions`)).toHaveLength(10);
+    expect(await env.admin.get(`/api/admin/events/${ev2.id}/questions`)).toHaveLength(11);
   });
 
   it("pergunta respondida: permite editar textos, bloqueia mudanças estruturais", async () => {
@@ -84,7 +90,7 @@ describe("construtor de perguntas", () => {
     const demo = events.find((e: any) => e.title.startsWith("Vendas Inteligentes"));
     const copy = await env.admin.post(`/api/admin/events/${demo.id}/duplicate`);
     const full = await env.admin.get(`/api/admin/events/${copy.id}`);
-    expect(full.questionCount).toBe(10);
+    expect(full.questionCount).toBe(11);
     expect(full.prizes).toHaveLength(3);
     expect(full.customFields.length).toBeGreaterThanOrEqual(4);
   });

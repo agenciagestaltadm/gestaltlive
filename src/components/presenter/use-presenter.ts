@@ -15,6 +15,7 @@ import { admin, ApiError, publicFetch } from "@/lib/api";
 import { useRealtime } from "@/lib/realtime";
 import { useAction } from "@/lib/hooks";
 import { toast } from "@/components/ui/toast";
+import { setWordCloudPending } from "@/components/live/word-cloud-pending";
 import { DEFAULT_PRESENTATION_SETTINGS, nextVisibleIndex, parseScreenUrl, type PresenterCommand, type PresenterResponse, type SessionDetailLite } from "./types";
 
 const MAX_QUEUE = 30;
@@ -370,6 +371,7 @@ export function usePresenter(sessionId: string) {
         setScreen((s) => (s ? { ...s, counts: { ...s.counts, ...p } } : s));
       },
       [RT.participantJoined]: () => undefined,
+      [RT.wordCloudPending]: (d: { sessionQuestionId: string; pending: number }) => setWordCloudPending(d.sessionQuestionId, d.pending),
       [RT.prizesRevealed]: () => reloadScreen(80),
       [RT.sessionStarted]: () => {
         reloadPanel(100);

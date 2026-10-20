@@ -5,7 +5,7 @@
  * (projetor/TV) e numa miniatura dentro do painel.
  */
 import { useEffect } from "react";
-import { Users, CheckCircle2, Lightbulb, Snowflake, EyeOff, Sparkles, ThumbsUp, Mic2, Coffee } from "lucide-react";
+import { Users, CheckCircle2, Lightbulb, Snowflake, EyeOff, Sparkles, ThumbsUp, Mic2, Coffee, Cloud } from "lucide-react";
 import type { LeaderboardDTO, SatisfactionDTO, ScreenStateDTO } from "@shared/types";
 import type { ScreenSlideDTO } from "@shared/presentations";
 import type { ChartType } from "@shared/charts/catalog";
@@ -211,6 +211,7 @@ export function QuestionScreen({ state, answered, theme }: { state: ScreenStateD
   const n = answered ?? 0;
   const pct = total ? (n / total) * 100 : 0;
   const showChart = !!state.results;
+  const cloud = q.type === "NUVEM_PALAVRAS";
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-start justify-between gap-[3cqw]">
@@ -223,6 +224,9 @@ export function QuestionScreen({ state, answered, theme }: { state: ScreenStateD
         </div>
         {q.state === "ABERTA" && q.timer.limitMs !== null && <Countdown timer={q.timer} size="xl" />}
       </div>
+      {cloud ? (
+        <WordCloudStage state={state} theme={theme} showChart={showChart} />
+      ) : (
       <div className={cn("mt-[3cqh] grid min-h-0 flex-1 gap-[3cqw]", showChart && "lg:grid-cols-2")}>
         {q.options.length > 0 ? (
           <div className={cn("grid content-start gap-[1.6cqh]", q.options.length > 4 && !showChart && "grid-cols-2")}>
@@ -244,6 +248,7 @@ export function QuestionScreen({ state, answered, theme }: { state: ScreenStateD
         )}
         {showChart && <ChartView data={state.results} type={q.chart.type} config={q.chart} theme={theme} large height="100%" showToolbar={false} className="min-h-[40cqh]" />}
       </div>
+      )}
       <div className="mt-[2.5cqh] pl-[16cqw]">
         <div className="flex items-end justify-between text-[2.4cqh] font-black">
           <span>
@@ -260,16 +265,42 @@ export function QuestionScreen({ state, answered, theme }: { state: ScreenStateD
   );
 }
 
+/** Nuvem de palavras no telão: a nuvem ocupa a tela; antes de exibir, convite para responder pelo celular. */
+function WordCloudStage({ state, theme, showChart }: { state: ScreenStateDTO; theme: "dark" | "light"; showChart: boolean }) {
+  const q = state.question!;
+  const wc = q.wordCloud;
+  return (
+    <div className="mt-[2.5cqh] flex min-h-0 flex-1 flex-col">
+      {showChart ? (
+        <ChartView data={state.results} type="wordcloud" config={q.chart} theme={theme} large height="100%" showToolbar={false} className="min-h-[40cqh] flex-1" />
+      ) : (
+        <div className={cn("grid flex-1 place-items-center rounded-[3cqh] border-2 border-dashed", theme === "dark" ? "border-white/15" : "border-navy-900/15")}>
+          <div className="text-center">
+            <Cloud className="mx-auto size-[12cqh] text-brand" aria-hidden />
+            <p className="mt-[2cqh] text-[4.2cqh] font-black">{q.state === "PRONTA" ? "Em instantes: responda pelo celular" : "Envie sua resposta pelo celular"}</p>
+            {wc && (
+              <p className="mt-[1cqh] text-[2.6cqh] font-bold opacity-70">
+                {wc.mode === "FRASE" ? `Frase curta · até ${wc.maxWords} palavras` : wc.maxWords === 1 ? "Uma palavra" : `Até ${wc.maxWords} palavras`}
+                {wc.maxEntries > 1 && ` · até ${wc.maxEntries} envios por pessoa`}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ResultScreen({ state, theme, chartType }: { state: ScreenStateDTO; theme: "dark" | "light"; chartType?: ChartType | null }) {
   const q = state.question!;
   const correct = q.correctOptionIds ? q.options.filter((o) => q.correctOptionIds!.includes(o.id)) : [];
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <p className="text-[2.2cqh] font-black uppercase tracking-[0.25em] text-brand">Resultado · pergunta {q.position}</p>
+      <p className="text-[2.2cqh] font-black uppercase tracking-[0.25em] text-brand">{q.type === "NUVEM_PALAVRAS" ? "Nuvem de palavras" : "Resultado"} · pergunta {q.position}</p>
       <h1 className="mt-[1cqh] text-[4.6cqh] font-black leading-tight">{q.title}</h1>
       <div className="mt-[2cqh] min-h-0 flex-1">
         {state.results ? (
-          <ChartView data={state.results} type={chartType ?? q.chart.type} config={q.chart} theme={theme} large height="100%" showToolbar={false} className="h-full" />
+          <ChartView data={state.results} type={q.type === "NUVEM_PALAVRAS" ? "wordcloud" : chartType ?? q.chart.type} config={q.chart} theme={theme} large height="100%" showToolbar={false} className="h-full" />
         ) : (
           <Waiting text="O resultado será exibido em instantes" />
         )}
